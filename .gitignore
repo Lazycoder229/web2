@@ -1,0 +1,5 @@
+front/node_modules/
+front/.next/
+alert/vendor/
+*.env
+*.env.local
