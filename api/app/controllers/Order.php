@@ -1,0 +1,264 @@
+<?php
+
+defined('PREVENT_DIRECT_ACCESS') or exit('No direct script access allowed');
+
+#[Route('/api')]
+class Order extends Controller
+{
+    private $api;
+    private $orders;
+    private $items;
+    private $menu;
+    private $tables;
+    private $customers;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->call->database();
+        $this->api = $this->call->library('api');
+        $this->orders = $this->call->model('OrderModel');
+        $this->items = $this->call->model('OrderItemModel');
+        $this->menu = $this->call->model('MenuModel');
+        $this->tables = $this->call->model('RestaurantTableModel');
+        $this->customers = $this->call->model('CustomerModel');
+    }
+
+    #[Get('/orders')]
+    public function index()
+    {
+        $rows = $this->orders->query()
+            ->select('id,order_number,table_id,customer_id,order_type,status,subtotal,discount,tax,total,payment_status,payment_method,payment_reference,created_by_staff_id,created_at,updated_at')
+            ->order_by('created_at', 'DESC')
+            ->get_all();
+
+        $orders = array_map([$this, 'format_order'], $rows ?: []);
+        $this->success(['orders' => $orders]);
+    }
+
+    #[Get('/orders/{id:uuid}')]
+    public function show($id)
+    {
+        $order = $this->orders->find($id);
+        if (!$order) {
+            $this->api->respond_error('Order not found.', 404);
+        }
+        $this->success(['order' => $this->format_order($order)]);
+    }
+
+    #[Post('/orders')]
+    public function create()
+    {
+        $input = $this->api->body();
+        $items = $input['items'] ?? [];
+        if (!is_array($items) || !$items) {
+            $this->api->respond_error('Order must contain at least one item.', 422);
+        }
+
+        $normalized = [];
+        $subtotal = 0;
+        foreach ($items as $item) {
+            $menu_item = $this->menu->find($item['menuItemId'] ?? '');
+            $quantity = (int) ($item['quantity'] ?? 0);
+            if (!$menu_item || $quantity < 1) {
+                $this->api->respond_error('Each order item must reference a valid menu item and quantity.', 422);
+            }
+            $price = (float) $menu_item['price'];
+            $line_total = round($price * $quantity, 2);
+            $subtotal += $line_total;
+            $normalized[] = ['menu_item_id' => $menu_item['id'], 'quantity' => $quantity, 'unit_price' => number_format($price, 2, '.', ''), 'subtotal' => number_format($line_total, 2, '.', ''), 'notes' => $item['notes'] ?? null];
+        }
+
+        $id = $this->uuid();
+        $order_number = 'ORD-' . date('ymdHis') . '-' . strtoupper(substr(str_replace('-', '', $id), 0, 4));
+        $created = $this->orders->insert([
+            'id' => $id,
+            'order_number' => $order_number,
+            'table_id' => $input['tableId'] ?? null,
+            'customer_id' => $input['customerId'] ?? null,
+            'order_type' => in_array(($input['orderType'] ?? 'counter'), ['qr', 'counter'], true) ? $input['orderType'] : 'counter',
+            'status' => 'pending',
+            'subtotal' => number_format($subtotal, 2, '.', ''),
+            'discount' => '0.00',
+            'tax' => '0.00',
+            'total' => number_format($subtotal, 2, '.', ''),
+            'payment_status' => 'not_required',
+            'created_by_staff_id' => $input['createdByStaffId'] ?? null,
+        ]);
+        if ($created === false) {
+            $this->api->respond_error('Could not create order.', 500);
+        }
+        foreach ($normalized as $item) {
+            $this->items->insert(array_merge(['id' => $this->uuid(), 'order_id' => $id], $item));
+        }
+        $this->success(['orderNumber' => $order_number, 'order' => $this->format_order($this->orders->find($id))], 201);
+    }
+
+    #[Put('/orders/{id:uuid}')]
+    public function update($id)
+    {
+        $order = $this->orders->find($id);
+        if (!$order) {
+            $this->api->respond_error('Order not found.', 404);
+        }
+        $input = $this->api->body();
+        if (isset($input['status'])) {
+            $allowed = ['pending', 'preparing', 'ready', 'served', 'completed', 'cancelled'];
+            if (!in_array($input['status'], $allowed, true)) {
+                $this->api->respond_error('Choose a valid order status.', 422);
+            }
+            $this->orders->query()->where('id', $id)->update(['status' => $input['status'], 'updated_at' => date('Y-m-d H:i:s')]);
+        }
+        if (isset($input['items']) && is_array($input['items']) && $input['items']) {
+            $this->items->query()->where('order_id', $id)->delete();
+            $subtotal = 0;
+            foreach ($input['items'] as $item) {
+                $menu_item = $this->menu->find($item['menuItemId'] ?? '');
+                $quantity = (int) ($item['quantity'] ?? 0);
+                if (!$menu_item || $quantity < 1) {
+                    $this->api->respond_error('Each order item must reference a valid menu item and quantity.', 422);
+                }
+                $price = (float) $menu_item['price'];
+                $line_total = round($price * $quantity, 2);
+                $subtotal += $line_total;
+                $this->items->insert([
+                    'id' => $this->uuid(),
+                    'order_id' => $id,
+                    'menu_item_id' => $menu_item['id'],
+                    'quantity' => $quantity,
+                    'unit_price' => number_format($price, 2, '.', ''),
+                    'subtotal' => number_format($line_total, 2, '.', ''),
+                    'notes' => $item['notes'] ?? null,
+                ]);
+            }
+            $this->orders->query()->where('id', $id)->update([
+                'subtotal' => number_format($subtotal, 2, '.', ''),
+                'total' => number_format($subtotal, 2, '.', ''),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+        $this->success(['order' => $this->format_order($this->orders->find($id))]);
+    }
+
+    #[Post('/orders/{id:uuid}/verify-payment')]
+    public function verify_payment($id)
+    {
+        $order = $this->orders->find($id);
+        if (!$order) {
+            $this->api->respond_error('Order not found.', 404);
+        }
+        $this->orders->query()->where('id', $id)->update([
+            'payment_status' => 'paid',
+            'status' => $order['status'] === 'pending' ? 'preparing' : $order['status'],
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $this->success(['order' => $this->format_order($this->orders->find($id))]);
+    }
+
+    #[Delete('/orders/{id:uuid}')]
+    public function delete($id)
+    {
+        if (!$this->orders->find($id)) {
+            $this->api->respond_error('Order not found.', 404);
+        }
+        $this->orders->query()->where('id', $id)->delete();
+        $this->success(['id' => $id]);
+    }
+
+    #[Put('/orders/{id:uuid}/status')]
+    public function update_status($id)
+    {
+        $order = $this->orders->find($id);
+        if (!$order) {
+            $this->api->respond_error('Order not found.', 404);
+        }
+
+        $input = $this->api->body();
+        $status = $input['status'] ?? '';
+        $allowed = ['pending', 'preparing', 'ready', 'served', 'completed', 'cancelled'];
+        if (!in_array($status, $allowed, true)) {
+            $this->api->respond_error('Choose a valid order status.', 422);
+        }
+
+        $this->orders->query()->where('id', $id)->update([
+            'status' => $status,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->success(['order' => $this->format_order($this->orders->find($id))]);
+    }
+
+    private function format_order($row)
+    {
+        $items = $this->items->query()
+            ->select('order_items.id,order_items.menu_item_id,menu_items.name,order_items.quantity,order_items.unit_price,order_items.subtotal,order_items.notes')
+            ->join('menu_items', 'menu_items.id = order_items.menu_item_id')
+            ->where('order_items.order_id', $row['id'])
+            ->get_all();
+
+        return [
+            'id' => (string) $row['id'],
+            'orderNumber' => $row['order_number'],
+            'tableId' => $row['table_id'] === null ? null : (string) $row['table_id'],
+            'orderType' => $row['order_type'],
+            'status' => $row['status'],
+            'subtotal' => (float) $row['subtotal'],
+            'discount' => (float) $row['discount'],
+            'tax' => (float) $row['tax'],
+            'total' => (float) $row['total'],
+            'paymentStatus' => $row['payment_status'] ?? null,
+            'paymentMethod' => $row['payment_method'] ?? null,
+            'paymentReference' => $row['payment_reference'] ?? null,
+            'createdByStaffId' => ($row['created_by_staff_id'] ?? null) === null ? null : (string) $row['created_by_staff_id'],
+            'table' => $this->table_label($row['table_id'] ?? null),
+            'source' => $row['order_type'] === 'qr' ? 'QR' : 'Counter',
+            'customer' => $this->customer_label($row['customer_id'] ?? null),
+            'time' => $row['created_at'] ?? null,
+            'createdAt' => $row['created_at'] ?? null,
+            'updatedAt' => $row['updated_at'] ?? null,
+            'items' => array_map(static function ($item) {
+                return [
+                    'id' => (string) $item['id'],
+                    'menuItemId' => (string) $item['menu_item_id'],
+                    'name' => $item['name'],
+                    'quantity' => (int) $item['quantity'],
+                    'price' => (float) $item['unit_price'],
+                    'subtotal' => (float) $item['subtotal'],
+                    'notes' => $item['notes'],
+                ];
+            }, $items ?: []),
+        ];
+    }
+
+    private function table_label($id)
+    {
+        if (!$id) {
+            return 'Counter';
+        }
+        $table = $this->tables->find($id);
+        return $table ? $table['table_number'] : 'Table';
+    }
+
+    private function customer_label($id)
+    {
+        if (!$id) {
+            return 'Guest checkout';
+        }
+        $customer = $this->customers->find($id);
+        return $customer ? $customer['name'] : 'Guest checkout';
+    }
+
+    private function uuid()
+    {
+        $bytes = random_bytes(16);
+        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+        $hex = bin2hex($bytes);
+        return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4) . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20);
+    }
+
+    private function success($data, $status = 200)
+    {
+        $this->api->respond(['success' => true, 'data' => $data], $status);
+    }
+}

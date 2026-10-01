@@ -1,0 +1,5 @@
+# Tool caches
+.php-cs-fixer.cache
+
+# Nested repository backups
+.git-backup/
