@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -167,6 +168,7 @@ const PAGE_SIZE = 8
 // ---------------------------------------------------------------------------
 
 export default function VoidsPage() {
+  const [isLoading, setIsLoading] = useState(true)
   const [voids, setVoids] = useState<OrderVoidItem[]>([])
   const [selectedStatusTab, setSelectedStatusTab] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -193,13 +195,15 @@ export default function VoidsPage() {
   }, [selectedStatusTab, searchQuery])
 
   useEffect(() => {
-    void loadVoids()
+    void loadVoids(true)
   }, [])
 
-  async function loadVoids() {
+  async function loadVoids(showLoading = false) {
+    if (showLoading) setIsLoading(true)
     const result = await fetchVoids()
     if (!result.success) {
       toast.error(result.error)
+      if (showLoading) setIsLoading(false)
       return
     }
     setVoids(
@@ -226,6 +230,7 @@ export default function VoidsPage() {
         resolvedAt: item.resolvedAt,
       }))
     )
+    if (showLoading) setIsLoading(false)
   }
 
   const recentOrders = useMemo<RecentOrderOption[]>(() => {
@@ -439,12 +444,18 @@ export default function VoidsPage() {
                     {metric.label}
                   </p>
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-base font-bold sm:text-lg">
-                      {metric.value}
-                    </span>
-                    <span className="truncate text-[10px] text-muted-foreground">
-                      ({metric.sub})
-                    </span>
+                    {isLoading ? (
+                      <Skeleton className="h-5 w-12" />
+                    ) : (
+                      <>
+                        <span className="text-base font-bold sm:text-lg">
+                          {metric.value}
+                        </span>
+                        <span className="truncate text-[10px] text-muted-foreground">
+                          ({metric.sub})
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -527,7 +538,26 @@ export default function VoidsPage() {
           </CardHeader>
 
           <CardContent className="p-0">
-            {filteredVoids.length ? (
+            {isLoading ? (
+              <div className="divide-y">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between gap-3 p-4 sm:px-6"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Skeleton className="size-10 shrink-0 rounded-lg" />
+                      <div className="min-w-0 space-y-2">
+                        <Skeleton className="h-4 w-40 max-w-full" />
+                        <Skeleton className="h-3 w-64 max-w-full" />
+                        <Skeleton className="h-3 w-48 max-w-full" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-8 w-20" />
+                  </div>
+                ))}
+              </div>
+            ) : filteredVoids.length ? (
               <div className="divide-y">
                 {paginatedVoids.map((item) => (
                   <div

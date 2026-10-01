@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -522,9 +523,13 @@ export default function ReservationsPage() {
                   <p className="truncate text-[10px] font-medium text-muted-foreground">
                     {metric.label}
                   </p>
-                  <p className="truncate text-sm font-bold sm:text-base">
-                    {metric.value}
-                  </p>
+                  {loading ? (
+                    <Skeleton className="h-5 w-12" />
+                  ) : (
+                    <p className="truncate text-sm font-bold sm:text-base">
+                      {metric.value}
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -577,8 +582,19 @@ export default function ReservationsPage() {
 
           <CardContent className="p-0">
             {loading ? (
-              <div className="flex items-center justify-center p-12">
-                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+              <div className="divide-y">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <div key={index} className="flex items-center justify-between gap-3 p-4 sm:px-6">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Skeleton className="size-10 rounded-lg" />
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-3 w-32" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-6 w-24" />
+                  </div>
+                ))}
               </div>
             ) : filteredReservations.length ? (
               <div className="divide-y">

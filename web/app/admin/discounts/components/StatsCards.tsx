@@ -1,11 +1,13 @@
 import { BadgePercent, CalendarRange, Flame, ShoppingBag } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 
 interface StatsCardsProps {
   active: number
   scheduled: number
   totalUsage: number
   discountTypes: number
+  loading?: boolean
 }
 
 export function StatsCards({
@@ -13,6 +15,7 @@ export function StatsCards({
   scheduled,
   totalUsage,
   discountTypes,
+  loading = false,
 }: StatsCardsProps) {
   const metrics = [
     { label: "Active promotions", value: active, icon: Flame },
@@ -37,9 +40,13 @@ export function StatsCards({
               <p className="truncate text-[10px] font-medium text-muted-foreground">
                 {metric.label}
               </p>
-              <p className="truncate text-sm font-bold sm:text-base">
-                {metric.value}
-              </p>
+              {loading ? (
+                <Skeleton className="h-5 w-12" />
+              ) : (
+                <p className="truncate text-sm font-bold sm:text-base">
+                  {metric.value}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

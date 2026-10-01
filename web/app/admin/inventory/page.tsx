@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react"
 import { toast } from "sonner"
+import { AdminDataSkeleton } from "@/components/admin-data-skeleton"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -367,10 +368,10 @@ export default function InventoryPage() {
       toast.error(result.error)
       return false
     }
-    setCategories(result.data.categories)
-    setItems(result.data.items)
-    setLogs(result.data.logs)
-    setMenuItems(result.data.menuStock)
+    setCategories(result.data.categories ?? [])
+    setItems(result.data.items ?? [])
+    setLogs(result.data.logs ?? result.data.stockLogs ?? [])
+    setMenuItems(result.data.menuStock ?? result.data.menuItems ?? [])
     return true
   }
 
@@ -721,7 +722,16 @@ export default function InventoryPage() {
     setMenuStockSheetOpen(false)
   }
 
-  return !isCheckingInventoryAccess && !inventoryAccess?.canView ? (
+  if (isCheckingInventoryAccess)
+    return (
+      <AdminDataSkeleton
+        rows={7}
+        title="Inventory"
+        description="Track ingredients, supplies, and menu item stock levels."
+      />
+    )
+
+  return !inventoryAccess?.canView ? (
     <div className="flex min-h-[50vh] items-center justify-center p-6">
       <Card className="w-full max-w-md">
         <CardContent className="p-6 text-center text-sm text-muted-foreground">
@@ -742,12 +752,7 @@ export default function InventoryPage() {
               </h1>
             </div>
             <p className="text-xs text-muted-foreground sm:text-sm">
-              Track ingredients, supplies, and menu item stock levels.{" "}
-              {isCheckingInventoryAccess && (
-                <span className="ml-2" role="status">
-                  Checking access and loading…
-                </span>
-              )}
+              Track ingredients, supplies, and menu item stock levels.
             </p>
           </div>
           {pageTab === "ingredients" && inventoryAccess?.canManage && (

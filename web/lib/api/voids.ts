@@ -3,8 +3,11 @@ import { api } from "./client"
 type AnyInput = Record<string, unknown>
 type VoidsResult = { success: boolean; data: any[]; error?: string }
 
-export function fetchVoids(): Promise<VoidsResult> {
-  return api<any>("/voids") as Promise<VoidsResult>
+export async function fetchVoids(): Promise<VoidsResult> {
+  const result = await api<any>("/voids")
+  return (
+    result.success ? { ...result, data: result.data?.voids ?? [] } : result
+  ) as VoidsResult
 }
 export function createVoidAction(input: AnyInput): Promise<any> {
   return api<any>("/voids", { method: "POST", body: JSON.stringify(input) })

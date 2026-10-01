@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ChevronLeft, ChevronRight, Eye, Loader2, Search, Tag, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Eye, Search, Tag, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { promoTabs } from "../constants"
@@ -103,8 +104,19 @@ export function PromotionsList({ promos, loading, onView }: PromotionsListProps)
 
       <CardContent className="p-0">
         {loading ? (
-          <div className="flex items-center justify-center p-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          <div className="divide-y">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="flex items-center justify-between gap-3 p-4 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Skeleton className="size-10 rounded-lg" />
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                </div>
+                <Skeleton className="h-6 w-24" />
+              </div>
+            ))}
           </div>
         ) : filtered.length ? (
           <div className="divide-y">

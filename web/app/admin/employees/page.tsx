@@ -51,6 +51,7 @@ import {
   Zap,
 } from "lucide-react"
 import { toast } from "sonner"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import {
   createEmployeeAction,
@@ -198,6 +199,7 @@ export interface PayrollRecord {
 // ---------------------------------------------------------------------------
 
 export default function EmployeesPage() {
+  const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("directory")
 
   // Employees state
@@ -269,6 +271,7 @@ export default function EmployeesPage() {
       const result = await fetchEmployeesData()
       if (!result.success) {
         toast.error(result.error)
+        setIsLoading(false)
         return
       }
 
@@ -303,7 +306,7 @@ export default function EmployeesPage() {
         setSelectedTapEmployeeId(formattedEmployees[0].id)
       }
       setAttendanceLogs(
-        result.data.attendanceLogs.map((log) => ({
+        (result.data.attendance ?? []).map((log) => ({
           id: log.id,
           employeeId: log.employeeId,
           employeeName: log.employeeName,
@@ -323,6 +326,7 @@ export default function EmployeesPage() {
           notes: null,
         }))
       )
+      setIsLoading(false)
     }
 
     void loadEmployees()
@@ -653,11 +657,18 @@ export default function EmployeesPage() {
                 <Users className="size-3.5 text-amber-500" />
               </div>
               <div className="text-lg font-bold sm:text-xl">
-                {employees.length} Employees
+                {isLoading ? (
+                  <Skeleton className="my-0.5 h-6 w-24" />
+                ) : (
+                  `${employees.length} Employees`
+                )}
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {employees.filter((e) => e.rfidCardUid).length} RFID Badges
-                Assigned
+                {isLoading ? (
+                  <Skeleton className="mt-1 h-3 w-32" />
+                ) : (
+                  `${employees.filter((e) => e.rfidCardUid).length} RFID Badges Assigned`
+                )}
               </div>
             </CardContent>
           </Card>
@@ -671,19 +682,25 @@ export default function EmployeesPage() {
                 <Clock className="size-3.5 text-emerald-500" />
               </div>
               <div className="text-lg font-bold text-emerald-600 sm:text-xl dark:text-emerald-400">
-                {
-                  attendanceLogs.filter((a) => a.logDate === "2026-09-17")
-                    .length
-                }{" "}
-                Checked In
+                {isLoading ? (
+                  <Skeleton className="my-0.5 h-6 w-24" />
+                ) : (
+                  `${
+                    attendanceLogs.filter((a) => a.logDate === "2026-09-17")
+                      .length
+                  } Checked In`
+                )}
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {
-                  attendanceLogs.filter(
-                    (a) => a.status === "late" && a.logDate === "2026-09-17"
-                  ).length
-                }{" "}
-                Tardy Taps
+                {isLoading ? (
+                  <Skeleton className="mt-1 h-3 w-20" />
+                ) : (
+                  `${
+                    attendanceLogs.filter(
+                      (a) => a.status === "late" && a.logDate === "2026-09-17"
+                    ).length
+                  } Tardy Taps`
+                )}
               </div>
             </CardContent>
           </Card>
@@ -697,7 +714,11 @@ export default function EmployeesPage() {
                 <Calendar className="size-3.5 text-sky-500" />
               </div>
               <div className="text-lg font-bold sm:text-xl">
-                {schedules.length} Scheduled
+                {isLoading ? (
+                  <Skeleton className="my-0.5 h-6 w-24" />
+                ) : (
+                  `${schedules.length} Scheduled`
+                )}
               </div>
               <div className="text-[10px] text-muted-foreground">
                 Across 3 Store Stations
@@ -814,104 +835,148 @@ export default function EmployeesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {filteredEmployees.map((emp) => (
-                          <tr
-                            key={emp.id}
-                            className="transition-colors hover:bg-muted/30"
-                          >
-                            <td className="px-3 py-2.5 font-mono font-semibold text-muted-foreground">
-                              {emp.employeeNumber}
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <div className="font-semibold text-foreground">
-                                {emp.name}
-                              </div>
-                              <div className="text-[10px] text-muted-foreground">
-                                {emp.contactNumber}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <div className="font-medium text-foreground">
-                                {emp.position}
-                              </div>
-                              <Badge
-                                variant="outline"
-                                className="py-0 text-[9px] text-muted-foreground"
-                              >
-                                {emp.department}
-                              </Badge>
-                            </td>
-                            <td className="px-3 py-2.5">
-                              {emp.rfidCardUid ? (
-                                <div className="flex items-center gap-1.5">
-                                  <Radio className="size-3 animate-pulse text-emerald-500" />
-                                  <span className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground">
-                                    {emp.rfidCardUid}
-                                  </span>
+                        {isLoading ? (
+                          Array.from({ length: 6 }).map((_, i) => (
+                            <tr key={i} className="transition-colors">
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-4 w-16" />
+                              </td>
+                              <td className="px-3 py-3 space-y-1.5">
+                                <Skeleton className="h-4 w-28" />
+                                <Skeleton className="h-3 w-20" />
+                              </td>
+                              <td className="px-3 py-3 space-y-1.5">
+                                <Skeleton className="h-4 w-24" />
+                                <Skeleton className="h-3 w-14" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-4 w-24" />
+                              </td>
+                              <td className="px-3 py-3 space-y-1.5">
+                                <Skeleton className="h-4 w-20" />
+                                <Skeleton className="h-3 w-16" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-5 w-16 rounded-full" />
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Skeleton className="size-7 rounded-md" />
+                                  <Skeleton className="size-7 rounded-md" />
+                                  <Skeleton className="size-7 rounded-md" />
                                 </div>
-                              ) : (
-                                <span className="flex items-center gap-1 text-[10px] font-medium text-amber-500">
-                                  <AlertCircle className="size-3" /> No Card
-                                  Assigned
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 tabular-nums">
-                              <div className="font-semibold text-foreground">
-                                ₱{emp.basicSalary.toLocaleString()}{" "}
-                                <span className="text-[10px] font-normal text-muted-foreground">
-                                  /{emp.salaryType}
-                                </span>
-                              </div>
-                              <div className="text-[10px] text-muted-foreground">
-                                ~₱{emp.hourlyRate.toFixed(2)}/hr
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] ${
-                                  emp.employmentStatus === "active"
-                                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                                    : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                                }`}
-                              >
-                                {emp.employmentStatus.toUpperCase()}
-                              </Badge>
-                            </td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleOpenViewEmployee(emp)}
-                                  className="size-7 text-muted-foreground hover:text-foreground"
-                                  title="View Employee"
-                                >
-                                  <Eye className="size-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleOpenEditEmployee(emp)}
-                                  className="size-7 text-muted-foreground hover:text-foreground"
-                                  title="Edit Employee"
-                                >
-                                  <Pencil className="size-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleDeleteEmployee(emp)}
-                                  className="size-7 text-destructive hover:bg-destructive/10"
-                                  title="Delete Employee"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </Button>
-                              </div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : filteredEmployees.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={7}
+                              className="py-8 text-center text-muted-foreground"
+                            >
+                              No employees found.
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          filteredEmployees.map((emp) => (
+                            <tr
+                              key={emp.id}
+                              className="transition-colors hover:bg-muted/30"
+                            >
+                              <td className="px-3 py-2.5 font-mono font-semibold text-muted-foreground">
+                                {emp.employeeNumber}
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <div className="font-semibold text-foreground">
+                                  {emp.name}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {emp.contactNumber}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <div className="font-medium text-foreground">
+                                  {emp.position}
+                                </div>
+                                <Badge
+                                  variant="outline"
+                                  className="py-0 text-[9px] text-muted-foreground"
+                                >
+                                  {emp.department}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                {emp.rfidCardUid ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <Radio className="size-3 animate-pulse text-emerald-500" />
+                                    <span className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground">
+                                      {emp.rfidCardUid}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="flex items-center gap-1 text-[10px] font-medium text-amber-500">
+                                    <AlertCircle className="size-3" /> No Card
+                                    Assigned
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 tabular-nums">
+                                <div className="font-semibold text-foreground">
+                                  ₱{emp.basicSalary.toLocaleString()}{" "}
+                                  <span className="text-[10px] font-normal text-muted-foreground">
+                                    /{emp.salaryType}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  ~₱{emp.hourlyRate.toFixed(2)}/hr
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] ${
+                                    emp.employmentStatus === "active"
+                                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                      : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                  }`}
+                                >
+                                  {emp.employmentStatus.toUpperCase()}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleOpenViewEmployee(emp)}
+                                    className="size-7 text-muted-foreground hover:text-foreground"
+                                    title="View Employee"
+                                  >
+                                    <Eye className="size-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleOpenEditEmployee(emp)}
+                                    className="size-7 text-muted-foreground hover:text-foreground"
+                                    title="Edit Employee"
+                                  >
+                                    <Pencil className="size-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDeleteEmployee(emp)}
+                                    className="size-7 text-destructive hover:bg-destructive/10"
+                                    title="Delete Employee"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -951,28 +1016,32 @@ export default function EmployeesPage() {
                       <Label className="text-xs font-medium">
                         Select Staff Card to Tap
                       </Label>
-                      <Select
-                        value={selectedTapEmployeeId}
-                        onValueChange={(value) =>
-                          setSelectedTapEmployeeId(value ?? "")
-                        }
-                      >
-                        <SelectTrigger className="h-9 text-xs">
-                          <SelectValue placeholder="Select staff card" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {employees.map((emp) => (
-                            <SelectItem key={emp.id} value={emp.id}>
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-medium">{emp.name}</span>
-                                <span className="font-mono text-[10px] text-muted-foreground">
-                                  ({emp.rfidCardUid || "No UID"})
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {isLoading ? (
+                        <Skeleton className="h-9 w-full" />
+                      ) : (
+                        <Select
+                          value={selectedTapEmployeeId}
+                          onValueChange={(value) =>
+                            setSelectedTapEmployeeId(value ?? "")
+                          }
+                        >
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue placeholder="Select staff card" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {employees.map((emp) => (
+                              <SelectItem key={emp.id} value={emp.id}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-medium">{emp.name}</span>
+                                  <span className="font-mono text-[10px] text-muted-foreground">
+                                    ({emp.rfidCardUid || "No UID"})
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
 
                     <div className="space-y-3 rounded-xl border border-dashed border-emerald-500/40 bg-muted/40 p-4 text-center">
@@ -1035,7 +1104,11 @@ export default function EmployeesPage() {
                         Daily Attendance Ledger
                       </CardTitle>
                       <Badge variant="outline" className="text-xs">
-                        {attendanceLogs.length} Records
+                        {isLoading ? (
+                          <Skeleton className="h-3 w-14" />
+                        ) : (
+                          `${attendanceLogs.length} Records`
+                        )}
                       </Badge>
                     </div>
                     <CardDescription className="text-xs">
@@ -1058,59 +1131,95 @@ export default function EmployeesPage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
-                            {attendanceLogs.map((log) => (
-                              <tr
-                                key={log.id}
-                                className="transition-colors hover:bg-muted/30"
-                              >
-                                <td className="px-3 py-2.5 font-medium whitespace-nowrap">
-                                  {log.logDate}
-                                </td>
-                                <td className="px-3 py-2.5">
-                                  <div className="font-semibold text-foreground">
-                                    {log.employeeName}
-                                  </div>
-                                  <div className="text-[10px] text-muted-foreground">
-                                    {log.department}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">
-                                  <div className="font-medium text-emerald-600 dark:text-emerald-400">
-                                    IN: {log.clockIn}
-                                  </div>
-                                  <div className="text-[10px] text-muted-foreground">
-                                    OUT: {log.clockOut || "— Active —"}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2.5 font-semibold tabular-nums">
-                                  {log.totalHours
-                                    ? `${log.totalHours} hrs`
-                                    : "In Progress"}
-                                </td>
-                                <td className="px-3 py-2.5">
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-[9px] ${
-                                      log.status === "on_time"
-                                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                                        : log.status === "late"
-                                          ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                                          : "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300"
-                                    }`}
-                                  >
-                                    {log.status === "late"
-                                      ? `Late (${log.lateMinutes}m)`
-                                      : log.status.toUpperCase()}
-                                  </Badge>
-                                </td>
-                                <td className="px-3 py-2.5">
-                                  <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
-                                    <Radio className="size-2.5 text-emerald-500" />
-                                    RFID
-                                  </span>
+                            {isLoading ? (
+                              Array.from({ length: 5 }).map((_, i) => (
+                                <tr key={i} className="transition-colors">
+                                  <td className="px-3 py-3">
+                                    <Skeleton className="h-4 w-20" />
+                                  </td>
+                                  <td className="px-3 py-3 space-y-1.5">
+                                    <Skeleton className="h-4 w-28" />
+                                    <Skeleton className="h-3 w-16" />
+                                  </td>
+                                  <td className="px-3 py-3 space-y-1.5">
+                                    <Skeleton className="h-4 w-20" />
+                                    <Skeleton className="h-3 w-16" />
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <Skeleton className="h-4 w-14" />
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <Skeleton className="h-5 w-16 rounded-full" />
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <Skeleton className="h-4 w-12" />
+                                  </td>
+                                </tr>
+                              ))
+                            ) : attendanceLogs.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={6}
+                                  className="py-8 text-center text-muted-foreground"
+                                >
+                                  No attendance records found.
                                 </td>
                               </tr>
-                            ))}
+                            ) : (
+                              attendanceLogs.map((log) => (
+                                <tr
+                                  key={log.id}
+                                  className="transition-colors hover:bg-muted/30"
+                                >
+                                  <td className="px-3 py-2.5 font-medium whitespace-nowrap">
+                                    {log.logDate}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <div className="font-semibold text-foreground">
+                                      {log.employeeName}
+                                    </div>
+                                    <div className="text-[10px] text-muted-foreground">
+                                      {log.department}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">
+                                    <div className="font-medium text-emerald-600 dark:text-emerald-400">
+                                      IN: {log.clockIn}
+                                    </div>
+                                    <div className="text-[10px] text-muted-foreground">
+                                      OUT: {log.clockOut || "— Active —"}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2.5 font-semibold tabular-nums">
+                                    {log.totalHours
+                                      ? `${log.totalHours} hrs`
+                                      : "In Progress"}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-[9px] ${
+                                        log.status === "on_time"
+                                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                          : log.status === "late"
+                                            ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                            : "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+                                      }`}
+                                    >
+                                      {log.status === "late"
+                                        ? `Late (${log.lateMinutes}m)`
+                                        : log.status.toUpperCase()}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+                                      <Radio className="size-2.5 text-emerald-500" />
+                                      RFID
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -1150,38 +1259,61 @@ export default function EmployeesPage() {
               </CardHeader>
               <CardContent className="p-4 pt-0">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {schedules.map((sch) => (
-                    <div
-                      key={sch.id}
-                      className="space-y-2.5 rounded-lg border border-border bg-background p-3.5 transition-colors hover:bg-muted/20"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-semibold text-foreground">
-                          {sch.employeeName}
+                  {isLoading ? (
+                    Array.from({ length: 6 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="space-y-2.5 rounded-lg border border-border bg-background p-3.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <Skeleton className="h-4 w-28" />
+                          <Skeleton className="h-4 w-14 rounded-full" />
                         </div>
-                        <Badge variant="outline" className="text-[9px]">
-                          {sch.department}
-                        </Badge>
-                      </div>
-
-                      <div className="space-y-1 text-xs">
-                        <div className="flex items-center gap-1.5 text-muted-foreground">
-                          <Clock className="size-3 text-sky-500" />
-                          <span className="font-mono font-medium text-foreground">
-                            {sch.startTime} – {sch.endTime}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-muted-foreground">
-                          <Utensils className="size-3 text-amber-500" />
-                          <span className="truncate">{sch.station}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-muted-foreground">
-                          <Calendar className="size-3 text-purple-500" />
-                          <span>{sch.shiftDate}</span>
+                        <div className="space-y-2 pt-1">
+                          <Skeleton className="h-3 w-32" />
+                          <Skeleton className="h-3 w-24" />
+                          <Skeleton className="h-3 w-28" />
                         </div>
                       </div>
+                    ))
+                  ) : schedules.length === 0 ? (
+                    <div className="col-span-full py-8 text-center text-muted-foreground">
+                      No shifts scheduled.
                     </div>
-                  ))}
+                  ) : (
+                    schedules.map((sch) => (
+                      <div
+                        key={sch.id}
+                        className="space-y-2.5 rounded-lg border border-border bg-background p-3.5 transition-colors hover:bg-muted/20"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs font-semibold text-foreground">
+                            {sch.employeeName}
+                          </div>
+                          <Badge variant="outline" className="text-[9px]">
+                            {sch.department}
+                          </Badge>
+                        </div>
+
+                        <div className="space-y-1 text-xs">
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Clock className="size-3 text-sky-500" />
+                            <span className="font-mono font-medium text-foreground">
+                              {sch.startTime} – {sch.endTime}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Utensils className="size-3 text-amber-500" />
+                            <span className="truncate">{sch.station}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Calendar className="size-3 text-purple-500" />
+                            <span>{sch.shiftDate}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1244,50 +1376,91 @@ export default function EmployeesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {payrollRecords.map((rec) => (
-                          <tr
-                            key={rec.id}
-                            className="transition-colors hover:bg-muted/30"
-                          >
-                            <td className="px-3 py-2.5">
-                              <div className="font-semibold text-foreground">
-                                {rec.employeeName}
-                              </div>
-                              <div className="text-[10px] text-muted-foreground">
-                                {rec.position}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5 tabular-nums">
-                              {rec.daysWorked} days
-                            </td>
-                            <td className="px-3 py-2.5 font-mono tabular-nums">
-                              ₱{rec.basicPay.toLocaleString()}
-                            </td>
-                            <td className="px-3 py-2.5 font-mono tabular-nums">
-                              ₱{rec.overtimePay.toLocaleString()}
-                            </td>
-                            <td className="px-3 py-2.5 font-mono font-semibold tabular-nums">
-                              ₱{rec.grossPay.toLocaleString()}
-                            </td>
-                            <td className="px-3 py-2.5 font-mono text-rose-600 tabular-nums dark:text-rose-400">
-                              -₱{rec.deductions.total.toLocaleString()}
-                            </td>
-                            <td className="px-3 py-2.5 font-mono font-bold text-emerald-600 tabular-nums dark:text-emerald-400">
-                              ₱{rec.netPay.toLocaleString()}
-                            </td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setSelectedPayslip(rec)}
-                                className="h-7 gap-1 text-xs"
-                              >
-                                <FileText className="size-3" />
-                                <span>Payslip</span>
-                              </Button>
+                        {isLoading ? (
+                          Array.from({ length: 5 }).map((_, i) => (
+                            <tr key={i} className="transition-colors">
+                              <td className="px-3 py-3 space-y-1.5">
+                                <Skeleton className="h-4 w-28" />
+                                <Skeleton className="h-3 w-16" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-4 w-14" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-4 w-16" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-4 w-16" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-4 w-18" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-4 w-18" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <Skeleton className="h-4 w-18" />
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <Skeleton className="ml-auto h-7 w-16" />
+                              </td>
+                            </tr>
+                          ))
+                        ) : payrollRecords.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={8}
+                              className="py-8 text-center text-muted-foreground"
+                            >
+                              No payroll records found.
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          payrollRecords.map((rec) => (
+                            <tr
+                              key={rec.id}
+                              className="transition-colors hover:bg-muted/30"
+                            >
+                              <td className="px-3 py-2.5">
+                                <div className="font-semibold text-foreground">
+                                  {rec.employeeName}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {rec.position}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 tabular-nums">
+                                {rec.daysWorked} days
+                              </td>
+                              <td className="px-3 py-2.5 font-mono tabular-nums">
+                                ₱{rec.basicPay.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2.5 font-mono tabular-nums">
+                                ₱{rec.overtimePay.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2.5 font-mono font-semibold tabular-nums">
+                                ₱{rec.grossPay.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2.5 font-mono text-rose-600 tabular-nums dark:text-rose-400">
+                                -₱{rec.deductions.total.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2.5 font-mono font-bold text-emerald-600 tabular-nums dark:text-emerald-400">
+                                ₱{rec.netPay.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setSelectedPayslip(rec)}
+                                  className="h-7 gap-1 text-xs"
+                                >
+                                  <FileText className="size-3" />
+                                  <span>Payslip</span>
+                                </Button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>

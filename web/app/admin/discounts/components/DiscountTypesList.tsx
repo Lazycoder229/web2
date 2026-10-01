@@ -1,12 +1,13 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { BadgePercent, Eye, Loader2, Search, X } from "lucide-react"
+import { BadgePercent, Eye, Search, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import type { DiscountType } from "../types"
 
@@ -58,8 +59,19 @@ export function DiscountTypesList({ discounts, loading, onView }: DiscountTypesL
 
       <CardContent className="p-0">
         {loading ? (
-          <div className="flex items-center justify-center p-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          <div className="divide-y">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="flex items-center justify-between gap-3 p-4 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Skeleton className="size-10 rounded-lg" />
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-36" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                </div>
+                <Skeleton className="h-6 w-20" />
+              </div>
+            ))}
           </div>
         ) : filtered.length ? (
           <div className="divide-y">

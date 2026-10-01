@@ -29,6 +29,7 @@ import {
   Zap,
 } from "lucide-react"
 import { toast } from "sonner"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -317,6 +318,7 @@ const ALL_PERMISSION_CODES = PERMISSION_MODULES.flatMap((m) =>
 )
 
 export default function RbacPage() {
+  const [isLoading, setIsLoading] = useState(true)
   const [roles, setRoles] = useState<RoleRecord[]>([])
   const [users, setUsers] = useState<StaffUserRecord[]>([])
   const [permissionIdsByCode, setPermissionIdsByCode] = useState<
@@ -348,6 +350,7 @@ export default function RbacPage() {
     const result = await fetchRbacData()
     if (!result.success) {
       toast.error(result.error)
+      setIsLoading(false)
       return
     }
     const permissionIds = Object.fromEntries(
@@ -363,42 +366,45 @@ export default function RbacPage() {
       ])
     )
     const rolePermissionCodes = new Map<string, string[]>()
-    result.data.rolePermissions.forEach((rolePermission) => {
-      const code = uiCodeByPermissionId[rolePermission.permissionId]
-      if (code)
-        rolePermissionCodes.set(rolePermission.roleId, [
-          ...(rolePermissionCodes.get(rolePermission.roleId) ?? []),
+    ;(result.data.rolePermissions ?? []).forEach((rolePermission: any) => {
+      const pId = rolePermission.permissionId ?? rolePermission.permission_id
+      const rId = rolePermission.roleId ?? rolePermission.role_id
+      const code = uiCodeByPermissionId[pId]
+      if (code && rId)
+        rolePermissionCodes.set(rId, [
+          ...(rolePermissionCodes.get(rId) ?? []),
           code,
         ])
     })
     const colors = ["#e11d48", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6"]
     setPermissionIdsByCode(permissionIds)
     setRoles(
-      result.data.roles.map((role, index) => ({
+      result.data.roles.map((role: any, index: number) => ({
         id: role.id,
         name: role.name,
         description: role.description ?? "",
-        isSystem: role.isSystem,
+        isSystem: Boolean(role.isSystem ?? role.is_system),
         color: colors[index % colors.length],
         permissions: rolePermissionCodes.get(role.id) ?? [],
       }))
     )
     setUsers(
-      result.data.users.map((user) => ({
+      result.data.users.map((user: any) => ({
         id: user.id,
         name: user.name,
         email: user.email,
-        contactNumber: "",
-        roleId: user.roleId ?? "",
-        isActive: user.isActive,
-        lastLoginAt: null,
+        contactNumber: user.contactNumber ?? user.contact_number ?? "",
+        roleId: user.roleId ?? user.role_id ?? "",
+        isActive: Boolean(user.isActive ?? user.is_active ?? true),
+        lastLoginAt: user.lastLoginAt ?? user.last_login_at ?? null,
       }))
     )
     setSelectedRoleId((current) =>
-      result.data.roles.some((role) => role.id === current)
+      result.data.roles.some((role: any) => role.id === current)
         ? current
         : (result.data.roles[0]?.id ?? "")
     )
+    setIsLoading(false)
   }
 
   // Current active role in view
@@ -537,7 +543,17 @@ export default function RbacPage() {
       toast.error(result.error)
       return
     }
+    const newRoleId = result.data?.role?.id
+    if (newRoleId && initialPermissions.length > 0) {
+      await assignRolePermissionsAction({
+        roleId: newRoleId,
+        permissionIds: initialPermissions
+          .map((permission) => permissionIdsByCode[permission])
+          .filter(Boolean),
+      })
+    }
     await loadRbacData()
+    if (newRoleId) setSelectedRoleId(newRoleId)
     setIsCreateRoleOpen(false)
     setNewRoleName("")
     setNewRoleDesc("")
@@ -591,6 +607,7 @@ export default function RbacPage() {
     }
     return list
   }, [users, searchQuery])
+
 
   return (
     <div className="w-full min-w-0 overflow-x-hidden pb-16 sm:pb-8">
@@ -659,79 +676,154 @@ export default function RbacPage() {
               {/* Role Picker List (Left Column) */}
               <div className="space-y-2 lg:col-span-4">
                 <div className="px-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                  Configured Roles ({roles.length})
+                  Configured Roles {isLoading ? "" : `(${roles.length})`}
                 </div>
 
                 <div className="space-y-2">
-                  {roles.map((role) => {
-                    const isSelected = role.id === selectedRoleId
-                    const userCount = userCountsByRole[role.id] || 0
-                    return (
-                      <div
-                        key={role.id}
-                        onClick={() => setSelectedRoleId(role.id)}
-                        className={`cursor-pointer rounded-lg border p-3 transition-all ${
-                          isSelected
-                            ? "border-amber-500/50 bg-amber-500/5 shadow-xs"
-                            : "border-border bg-card hover:bg-muted/30"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <span
-                              className="size-2.5 shrink-0 rounded-full"
-                              style={{ backgroundColor: role.color }}
-                            />
-                            <span className="truncate text-xs font-semibold">
-                              {role.name}
-                            </span>
+                  {isLoading
+                    ? Array.from({ length: 4 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="rounded-lg border border-border bg-card p-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <Skeleton className="size-2.5 rounded-full" />
+                              <Skeleton className="h-4 w-24" />
+                            </div>
+                            <Skeleton className="h-5 w-14" />
                           </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {role.isSystem ? (
-                              <Badge
-                                variant="outline"
-                                className="border-neutral-300 bg-neutral-100 py-0 text-[9px] text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
-                              >
-                                System
-                              </Badge>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-6 text-rose-500 hover:text-rose-700"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setDeletingRoleId(role.id)
-                                }}
-                                title="Delete custom role"
-                              >
-                                <Trash2 className="size-3" />
-                              </Button>
-                            )}
+                          <Skeleton className="h-3 w-full" />
+                          <div className="flex items-center justify-between border-t border-border/50 pt-2">
+                            <Skeleton className="h-3 w-28" />
+                            <Skeleton className="h-3 w-20" />
                           </div>
                         </div>
+                      ))
+                    : roles.map((role) => {
+                        const isSelected = role.id === selectedRoleId
+                        const userCount = userCountsByRole[role.id] || 0
+                        return (
+                          <div
+                            key={role.id}
+                            onClick={() => setSelectedRoleId(role.id)}
+                            className={`cursor-pointer rounded-lg border p-3 transition-all ${
+                              isSelected
+                                ? "border-amber-500/50 bg-amber-500/5 shadow-xs"
+                                : "border-border bg-card hover:bg-muted/30"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex min-w-0 items-center gap-2.5">
+                                <span
+                                  className="size-2.5 shrink-0 rounded-full"
+                                  style={{ backgroundColor: role.color }}
+                                />
+                                <span className="truncate text-xs font-semibold">
+                                  {role.name}
+                                </span>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                {role.isSystem ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-neutral-300 bg-neutral-100 py-0 text-[9px] text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
+                                  >
+                                    System
+                                  </Badge>
+                                ) : (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-6 text-rose-500 hover:text-rose-700"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setDeletingRoleId(role.id)
+                                    }}
+                                    title="Delete custom role"
+                                  >
+                                    <Trash2 className="size-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
 
-                        <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
-                          {role.description}
-                        </p>
+                            <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                              {role.description}
+                            </p>
 
-                        <div className="mt-2 flex items-center justify-between border-t border-border/50 pt-2 text-[10px] text-muted-foreground">
-                          <span>
-                            {role.permissions.length} of{" "}
-                            {ALL_PERMISSION_CODES.length} permissions
-                          </span>
-                          <span className="font-medium text-foreground">
-                            {userCount} staff assigned
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })}
+                            <div className="mt-2 flex items-center justify-between border-t border-border/50 pt-2 text-[10px] text-muted-foreground">
+                              <span>
+                                {role.permissions.length} of{" "}
+                                {ALL_PERMISSION_CODES.length} permissions
+                              </span>
+                              <span className="font-medium text-foreground">
+                                {userCount} staff assigned
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
                 </div>
               </div>
 
               {/* Permission Matrix for Selected Role (Right Column) */}
               <div className="space-y-4 lg:col-span-8">
+                {isLoading ? (
+                  <Card className="border bg-card shadow-xs">
+                    <CardHeader className="p-4 pb-3">
+                      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <Skeleton className="size-3 rounded-full" />
+                            <Skeleton className="h-5 w-32" />
+                          </div>
+                          <Skeleton className="h-3 w-48" />
+                        </div>
+                        <Skeleton className="h-6 w-36" />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-5 p-4 pt-0">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="overflow-hidden rounded-lg border border-border bg-background"
+                        >
+                          <div className="flex items-center justify-between border-b border-border bg-muted/30 p-3">
+                            <div className="flex items-center gap-2.5">
+                              <Skeleton className="size-7 rounded-md" />
+                              <div className="space-y-1">
+                                <Skeleton className="h-3.5 w-24" />
+                                <Skeleton className="h-2.5 w-16" />
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <Skeleton className="h-7 w-10" />
+                              <Skeleton className="h-7 w-12" />
+                            </div>
+                          </div>
+                          <div className="divide-y divide-border/60">
+                            {Array.from({ length: 3 }).map((_, j) => (
+                              <div
+                                key={j}
+                                className="flex items-center justify-between p-3"
+                              >
+                                <div className="space-y-1 pr-4">
+                                  <div className="flex items-center gap-2">
+                                    <Skeleton className="h-3.5 w-28" />
+                                    <Skeleton className="h-3 w-20" />
+                                  </div>
+                                  <Skeleton className="h-2.5 w-44" />
+                                </div>
+                                <Skeleton className="h-5 w-9 rounded-full" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                ) : (
                 <Card className="border bg-card shadow-xs">
                   <CardHeader className="p-4 pb-3">
                     <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
@@ -879,6 +971,7 @@ export default function RbacPage() {
                     </div>
                   </CardContent>
                 </Card>
+                )}
               </div>
             </div>
           </TabsContent>

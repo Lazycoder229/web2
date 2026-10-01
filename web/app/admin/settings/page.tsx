@@ -37,6 +37,7 @@ import {
   Zap,
 } from "lucide-react"
 import { toast } from "sonner"
+import { AdminDataSkeleton } from "@/components/admin-data-skeleton"
 
 import {
   createLoyaltyRewardAction,
@@ -181,6 +182,7 @@ const EMPTY_SETTINGS: SystemSettingsValues = {
 // ---------------------------------------------------------------------------
 
 export default function SystemSettingsPage() {
+  const [isLoading, setIsLoading] = useState(true)
   const [settings, setSettings] = useState<SystemSettingsValues>(EMPTY_SETTINGS)
   const [initialSettings, setInitialSettings] =
     useState<SystemSettingsValues>(EMPTY_SETTINGS)
@@ -209,6 +211,7 @@ export default function SystemSettingsPage() {
       ])
       if (!result.success) {
         toast.error(result.error)
+        setIsLoading(false)
         return
       }
       if (!loyaltyResult.success) toast.error(loyaltyResult.error)
@@ -244,6 +247,7 @@ export default function SystemSettingsPage() {
       }
       setSettings(loadedSettings)
       setInitialSettings(loadedSettings)
+      setIsLoading(false)
     }
 
     void loadSettings()
@@ -447,6 +451,15 @@ export default function SystemSettingsPage() {
       grandTotal,
     }
   }, [sampleBillAmount, applySampleSenior, settings])
+
+  if (isLoading)
+    return (
+      <AdminDataSkeleton
+        rows={6}
+        title="System & POS Settings"
+        description="Configure store, receipt, loyalty, and POS settings."
+      />
+    )
 
   return (
     <div className="w-full min-w-0 overflow-x-hidden pb-16 sm:pb-8">

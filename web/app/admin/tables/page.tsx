@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -162,15 +163,18 @@ function formatCapacity(capacity: number) {
 // ---------------------------------------------------------------------------
 
 export default function TablesPage() {
+  const [isLoading, setIsLoading] = useState(true)
   const [tables, setTables] = useState<RestaurantTable[]>([])
 
-  const refreshTables = useCallback(async () => {
+  const refreshTables = useCallback(async (showLoading = false) => {
+    if (showLoading) setIsLoading(true)
     const res = await fetchTables()
     if (res.success) setTables(res.data as RestaurantTable[])
+    if (showLoading) setIsLoading(false)
   }, [])
 
   useEffect(() => {
-    void refreshTables()
+    void refreshTables(true)
     const interval = window.setInterval(() => void refreshTables(), 5000)
     const handleFocus = () => void refreshTables()
     window.addEventListener("focus", handleFocus)
@@ -447,9 +451,13 @@ export default function TablesPage() {
                   <p className="truncate text-[10px] font-medium text-muted-foreground">
                     {metric.label}
                   </p>
-                  <p className="truncate text-sm font-bold sm:text-base">
-                    {metric.value}
-                  </p>
+                  {isLoading ? (
+                    <Skeleton className="h-5 w-12" />
+                  ) : (
+                    <p className="truncate text-sm font-bold sm:text-base">
+                      {metric.value}
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -501,7 +509,25 @@ export default function TablesPage() {
         </div>
 
         {/* Table grid */}
-        {filteredTables.length ? (
+        {isLoading ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <Card key={index} className="border bg-card shadow-xs">
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                    <Skeleton className="h-6 w-20" />
+                  </div>
+                  <Skeleton className="h-32 w-full" />
+                  <Skeleton className="h-9 w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : filteredTables.length ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
             {filteredTables.map((table) => (
               <Card

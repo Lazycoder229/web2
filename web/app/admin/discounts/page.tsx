@@ -159,7 +159,7 @@ export default function DiscountsPage() {
           </Button>
         </div>
 
-        <StatsCards {...counts} />
+        <StatsCards {...counts} loading={loading} />
 
         <div className="w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Tabs value={pageTab} onValueChange={setPageTab}>

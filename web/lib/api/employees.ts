@@ -3,7 +3,7 @@ import { api } from "./client"
 type AnyInput = Record<string, unknown>
 type EmployeeResult = {
   success: boolean
-  data: { employees: any[]; attendanceLogs: any[] }
+  data: { employees: any[]; attendance?: any[] }
   error?: string
 }
 

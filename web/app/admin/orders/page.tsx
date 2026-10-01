@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -878,9 +879,13 @@ export default function OrdersPage() {
                   <p className="truncate text-[10px] font-medium text-muted-foreground">
                     {metric.label}
                   </p>
-                  <p className="truncate text-sm font-bold sm:text-base">
-                    {metric.value}
-                  </p>
+                  {loading ? (
+                    <Skeleton className="h-5 w-12" />
+                  ) : (
+                    <p className="truncate text-sm font-bold sm:text-base">
+                      {metric.value}
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1144,9 +1149,21 @@ export default function OrdersPage() {
                 </table>
               </div>
             ) : loading ? (
-              <div className="flex min-h-36 items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin text-amber-500" />
-                Loading orders…
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[920px] text-sm">
+                  <tbody className="divide-y">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <tr key={index}>
+                        <td className="px-4 py-4 sm:px-6"><Skeleton className="h-4 w-28" /></td>
+                        <td className="px-4 py-4"><Skeleton className="h-4 w-32" /></td>
+                        <td className="px-4 py-4"><Skeleton className="h-4 w-20" /></td>
+                        <td className="px-4 py-4"><Skeleton className="h-6 w-24" /></td>
+                        <td className="px-4 py-4"><Skeleton className="h-6 w-24" /></td>
+                        <td className="px-4 py-4 sm:px-6"><Skeleton className="ml-auto h-8 w-28" /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
               <div className="p-12 text-center text-sm text-muted-foreground">

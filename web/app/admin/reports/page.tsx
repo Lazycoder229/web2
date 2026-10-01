@@ -72,6 +72,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
+import { AdminDataSkeleton } from "@/components/admin-data-skeleton"
 
 import { fetchReportsData, createExpenseAction } from "@/lib/api/reports"
 
@@ -347,6 +348,7 @@ function HorizontalBar({
 // ---------------------------------------------------------------------------
 
 export default function ReportsPage() {
+  const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ReportTab>("sales")
   const [dateRange, setDateRange] = useState<DateRange>("7d")
   const [search, setSearch] = useState("")
@@ -415,6 +417,7 @@ export default function ReportsPage() {
       const result = await fetchReportsData()
       if (!result.success) {
         toast.error(result.error)
+        setIsLoading(false)
         return
       }
 
@@ -452,6 +455,7 @@ export default function ReportsPage() {
           ],
         }))
       )
+      setIsLoading(false)
     }
 
     void loadReports()
@@ -719,6 +723,15 @@ export default function ReportsPage() {
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+  if (isLoading)
+    return (
+      <AdminDataSkeleton
+        rows={7}
+        title="Reports & Analytics"
+        description="Sales performance, expenses, and business insights."
+      />
+    )
+
   return (
     <div className="w-full min-w-0 overflow-x-hidden pb-16 sm:pb-8">
       <Toaster richColors position="top-right" />
