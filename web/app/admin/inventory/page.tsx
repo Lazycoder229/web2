@@ -22,13 +22,14 @@ import {
   X,
 } from "lucide-react"
 import { toast } from "sonner"
-import { AdminDataSkeleton } from "@/components/admin-data-skeleton"
 
+import { AdminDeleteDialog } from "@/components/admin-delete-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -59,6 +60,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Toaster } from "@/components/ui/sonner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   adjustStockAction,
   createInventoryItemAction,
@@ -192,6 +194,26 @@ function menuStockLevel(
   if (item.stockQuantity <= 0) return "out"
   if (item.stockQuantity <= 5) return "low"
   return "ok"
+}
+
+function InventoryRowsSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="divide-y">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div
+          key={index}
+          className="flex items-center gap-3 p-4 sm:px-6"
+        >
+          <Skeleton className="size-10 shrink-0 rounded-lg" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-2/5 max-w-56" />
+            <Skeleton className="h-3 w-3/5 max-w-80" />
+          </div>
+          <Skeleton className="h-8 w-24" />
+        </div>
+      ))}
+    </div>
+  )
 }
 
 const stockLevelClasses = {
@@ -368,10 +390,73 @@ export default function InventoryPage() {
       toast.error(result.error)
       return false
     }
-    setCategories(result.data.categories ?? [])
-    setItems(result.data.items ?? [])
-    setLogs(result.data.logs ?? result.data.stockLogs ?? [])
-    setMenuItems(result.data.menuStock ?? result.data.menuItems ?? [])
+    const rawCategories = result.data.categories ?? []
+    const normalizedCategories: InventoryCategory[] = rawCategories.map(
+      (category: any) => ({
+        id: String(category.id),
+        name: String(category.name ?? ""),
+      })
+    )
+    const categoryNames = new Map(
+      normalizedCategories.map((category) => [category.id, category.name])
+    )
+    const asNullableNumber = (value: unknown): number | null =>
+      value == null || value === "" ? null : Number(value)
+    const asBoolean = (value: unknown): boolean =>
+      value == null ? true : value === true || value === 1 || value === "1"
+
+    setCategories(normalizedCategories)
+    setItems(
+      (result.data.items ?? []).map((item: any) => {
+        const categoryId = item.categoryId ?? item.category_id ?? null
+        return {
+          id: String(item.id),
+          categoryId: categoryId == null ? null : String(categoryId),
+          categoryName:
+            item.categoryName ??
+            item.category_name ??
+            (categoryId == null ? null : categoryNames.get(String(categoryId))) ??
+            null,
+          name: String(item.name ?? ""),
+          unit: String(item.unit ?? "pcs"),
+          stockQuantity: Number(item.stockQuantity ?? item.stock_quantity ?? 0),
+          reorderThreshold: asNullableNumber(
+            item.reorderThreshold ?? item.reorder_threshold
+          ),
+          unitCost: asNullableNumber(item.unitCost ?? item.unit_cost),
+          supplier: item.supplier ?? null,
+          isActive: asBoolean(item.isActive ?? item.is_active),
+        }
+      })
+    )
+    setLogs(
+      (result.data.logs ?? result.data.stockLogs ?? []).map((log: any) => ({
+        id: String(log.id),
+        itemType: log.itemType ?? log.item_type,
+        inventoryItemId: log.inventoryItemId ?? log.inventory_item_id ?? null,
+        menuItemId: log.menuItemId ?? log.menu_item_id ?? null,
+        itemName: log.itemName ?? log.item_name ?? "Inventory item",
+        unit: String(log.unit ?? "pcs"),
+        type: log.type,
+        quantityChange: Number(log.quantityChange ?? log.quantity_change ?? 0),
+        quantityAfter: asNullableNumber(log.quantityAfter ?? log.quantity_after),
+        note: log.note ?? null,
+        performedByStaffId:
+          log.performedByStaffId ?? log.performed_by_staff_id ?? "",
+        staffName: log.staffName ?? log.staff_name ?? "Staff",
+        createdAt: log.createdAt ?? log.created_at ?? "",
+      }))
+    )
+    setMenuItems(
+      (result.data.menuStock ?? result.data.menuItems ?? []).map((item: any) => ({
+        id: String(item.id),
+        name: String(item.name ?? ""),
+        category: item.category ?? item.categoryName ?? item.category_name ?? "",
+        price: Number(item.price ?? 0),
+        stockQuantity: asNullableNumber(item.stockQuantity ?? item.stock_quantity),
+        isAvailable: asBoolean(item.isAvailable ?? item.is_available),
+      }))
+    )
     return true
   }
 
@@ -722,16 +807,8 @@ export default function InventoryPage() {
     setMenuStockSheetOpen(false)
   }
 
-  if (isCheckingInventoryAccess)
+  if (!isCheckingInventoryAccess && !inventoryAccess?.canView) {
     return (
-      <AdminDataSkeleton
-        rows={7}
-        title="Inventory"
-        description="Track ingredients, supplies, and menu item stock levels."
-      />
-    )
-
-  return !inventoryAccess?.canView ? (
     <div className="flex min-h-[50vh] items-center justify-center p-6">
       <Card className="w-full max-w-md">
         <CardContent className="p-6 text-center text-sm text-muted-foreground">
@@ -739,7 +816,10 @@ export default function InventoryPage() {
         </CardContent>
       </Card>
     </div>
-  ) : (
+    )
+  }
+
+  return (
     <div className="w-full min-w-0 overflow-x-hidden pb-16 sm:pb-8">
       <Toaster richColors position="top-center" />
       <div className="space-y-4 sm:space-y-6">
@@ -795,9 +875,13 @@ export default function InventoryPage() {
                   <p className="truncate text-[10px] font-medium text-muted-foreground">
                     {metric.label}
                   </p>
-                  <p className="truncate text-sm font-bold sm:text-base">
-                    {metric.value}
-                  </p>
+                  <div className="truncate text-sm font-bold sm:text-base">
+                    {isCheckingInventoryAccess ? (
+                      <Skeleton className="h-5 w-20" />
+                    ) : (
+                      metric.value
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -869,14 +953,22 @@ export default function InventoryPage() {
             </CardHeader>
 
             <CardContent className="p-0">
-              {filteredItems.length ? (
+              <div className="hidden grid-cols-[minmax(0,1fr)_120px_120px_120px] border-y bg-muted/30 px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase sm:grid sm:px-6">
+                <span>Item</span>
+                <span>Unit cost</span>
+                <span>Stock level</span>
+                <span className="text-center">Actions</span>
+              </div>
+              {isCheckingInventoryAccess ? (
+                <InventoryRowsSkeleton />
+              ) : filteredItems.length ? (
                 <div className="divide-y">
                   {paginatedItems.map((item) => {
                     const level = stockLevel(item)
                     return (
                       <div
                         key={item.id}
-                        className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                        className="grid gap-3 border-b p-4 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_120px_120px_120px] sm:items-center sm:px-6"
                       >
                         <div className="flex min-w-0 items-center gap-3">
                           <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
@@ -903,26 +995,47 @@ export default function InventoryPage() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between gap-3 sm:justify-end">
-                          <p className="text-sm font-bold text-amber-600">
-                            {item.unitCost != null
-                              ? formatCurrency(item.unitCost) + `/${item.unit}`
-                              : "—"}
-                          </p>
-                          <Badge
-                            variant="outline"
-                            className={`min-w-24 justify-center text-[11px] ${stockLevelClasses[level]}`}
-                          >
-                            {stockLevelLabels[level]}
-                          </Badge>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => setSelectedItem(item)}
-                            aria-label={`View ${item.name}`}
-                          >
-                            <Eye className="size-4" />
-                          </Button>
+                        <p className="text-sm font-bold text-amber-600">
+                          {item.unitCost != null
+                            ? formatCurrency(item.unitCost) + `/${item.unit}`
+                            : "—"}
+                        </p>
+                        <Badge
+                          variant="outline"
+                          className={`min-w-24 justify-center text-[11px] ${stockLevelClasses[level]}`}
+                        >
+                          {stockLevelLabels[level]}
+                        </Badge>
+                        <div className="flex items-center justify-end gap-2">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="outline" size="icon-sm" onClick={() => setSelectedItem(item)} aria-label={`View ${item.name}`}>
+                                <Eye className="size-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>View item</TooltipContent>
+                          </Tooltip>
+                          {inventoryAccess?.canManage && (
+                            <>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="outline" size="icon-sm" onClick={() => openEditItem(item)} aria-label={`Edit ${item.name}`}>
+                                    <Pencil className="size-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit item</TooltipContent>
+                              </Tooltip>
+                              <AdminDeleteDialog
+                                title={`Delete ${item.name}?`}
+                                description="This removes the item and all its stock log history. This cannot be undone."
+                                onConfirm={() => deleteItem(item)}
+                              >
+                                <Button variant="outline" size="icon-sm" className="text-destructive hover:text-destructive" aria-label={`Delete ${item.name}`}>
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </AdminDeleteDialog>
+                            </>
+                          )}
                         </div>
                       </div>
                     )
@@ -1031,14 +1144,21 @@ export default function InventoryPage() {
             </CardHeader>
 
             <CardContent className="p-0">
-              {filteredMenuItems.length ? (
+              <div className="hidden grid-cols-[minmax(0,1fr)_120px_140px] border-y bg-muted/30 px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase sm:grid sm:px-6">
+                <span>Menu item</span>
+                <span>Stock level</span>
+                <span className="text-center">Actions</span>
+              </div>
+              {isCheckingInventoryAccess ? (
+                <InventoryRowsSkeleton />
+              ) : filteredMenuItems.length ? (
                 <div className="divide-y">
                   {filteredMenuItems.map((item) => {
                     const level = menuStockLevel(item)
                     return (
                       <div
                         key={item.id}
-                        className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                        className="grid gap-3 border-b p-4 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_120px_140px] sm:items-center sm:px-6"
                       >
                         <div className="flex min-w-0 items-center gap-3">
                           <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
@@ -1059,13 +1179,13 @@ export default function InventoryPage() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between gap-3 sm:justify-end">
-                          <Badge
-                            variant="outline"
-                            className={`min-w-24 justify-center text-[11px] ${stockLevelClasses[level]}`}
-                          >
-                            {stockLevelLabels[level]}
-                          </Badge>
+                        <Badge
+                          variant="outline"
+                          className={`min-w-24 justify-center text-[11px] ${stockLevelClasses[level]}`}
+                        >
+                          {stockLevelLabels[level]}
+                        </Badge>
+                        <div className="flex justify-center">
                           {inventoryAccess?.canManage && (
                             <Button
                               size="sm"
@@ -1160,12 +1280,19 @@ export default function InventoryPage() {
             </CardHeader>
 
             <CardContent className="p-0">
-              {filteredLogs.length ? (
+              <div className="hidden grid-cols-[minmax(0,1fr)_140px_140px] border-y bg-muted/30 px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase sm:grid sm:px-6">
+                <span>Item &amp; activity</span>
+                <span className="text-right">Quantity change</span>
+                <span className="text-right">Stock after</span>
+              </div>
+              {isCheckingInventoryAccess ? (
+                <InventoryRowsSkeleton rows={6} />
+              ) : filteredLogs.length ? (
                 <div className="divide-y">
                   {paginatedLogs.map((log) => (
                     <div
                       key={log.id}
-                      className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                      className="grid gap-3 border-b p-4 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_140px_140px] sm:items-center sm:px-6"
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
@@ -1197,22 +1324,15 @@ export default function InventoryPage() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center justify-end gap-3">
-                        <div className="text-right">
-                          <p
-                            className={`font-bold ${log.quantityChange >= 0 ? "text-emerald-700" : "text-destructive"}`}
-                          >
-                            {log.quantityChange >= 0 ? "+" : ""}
-                            {log.quantityChange} {log.unit}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            →{" "}
-                            {log.quantityAfter == null
-                              ? "Unlimited"
-                              : `${log.quantityAfter} ${log.unit}`}
-                          </p>
-                        </div>
-                      </div>
+                      <p className={`text-right font-bold ${log.quantityChange >= 0 ? "text-emerald-700" : "text-destructive"}`}>
+                        {log.quantityChange >= 0 ? "+" : ""}
+                        {log.quantityChange} {log.unit}
+                      </p>
+                      <p className="text-right text-xs text-muted-foreground">
+                        {log.quantityAfter == null
+                          ? "Unlimited"
+                          : `${log.quantityAfter} ${log.unit}`}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -1559,61 +1679,22 @@ export default function InventoryPage() {
               </div>
 
               <SheetFooter className="flex-col gap-2 border-t bg-background p-4 sm:p-6">
-                <div className="grid w-full grid-cols-2 gap-2">
+                {inventoryAccess?.canManage ? (
                   <Button
-                    variant="outline"
                     onClick={() => {
-                      openEditItem(selectedItem)
+                      openAdjust(selectedItem)
                       setSelectedItem(null)
                     }}
+                    className="w-full bg-amber-500 font-semibold text-neutral-950 hover:bg-amber-400"
                   >
-                    <Pencil className="mr-2 size-4" />
-                    Edit
+                    <PackagePlus className="mr-2 size-4" />
+                    Adjust stock
                   </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="mr-2 size-4" />
-                        Delete
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent className="w-[90vw] max-w-md rounded-xl sm:rounded-lg">
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          Delete {selectedItem.name}?
-                        </AlertDialogTitle>
-                        <AlertDialogDescription className="text-xs sm:text-sm">
-                          This removes the item and all its stock log history.
-                          This cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
-                        <AlertDialogCancel className="mt-0 w-full sm:w-auto">
-                          Cancel
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => deleteItem(selectedItem)}
-                          className="text-destructive-foreground w-full bg-destructive hover:bg-destructive/90 sm:w-auto"
-                        >
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-                <Button
-                  onClick={() => {
-                    openAdjust(selectedItem)
-                    setSelectedItem(null)
-                  }}
-                  className="w-full bg-amber-500 font-semibold text-neutral-950 hover:bg-amber-400"
-                >
-                  <PackagePlus className="mr-2 size-4" />
-                  Adjust stock
-                </Button>
+                ) : (
+                  <Button variant="outline" onClick={() => setSelectedItem(null)} className="w-full">
+                    Close
+                  </Button>
+                )}
               </SheetFooter>
             </>
           )}

@@ -1,14 +1,20 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ChevronLeft, ChevronRight, Eye, Search, Tag, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Eye, Pencil, Search, Tag, Trash2, X } from "lucide-react"
 
+import { AdminDeleteDialog } from "@/components/admin-delete-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 import { promoTabs } from "../constants"
 import type { Promotion } from "../types"
@@ -25,11 +31,13 @@ interface PromotionsListProps {
   promos: Promotion[]
   loading: boolean
   onView: (promo: Promotion) => void
+  onEdit: (promo: Promotion) => void
+  onDelete: (promo: Promotion) => void
 }
 
 const PAGE_SIZE = 6
 
-export function PromotionsList({ promos, loading, onView }: PromotionsListProps) {
+export function PromotionsList({ promos, loading, onView, onEdit, onDelete }: PromotionsListProps) {
   const [tab, setTab] = useState("all")
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
@@ -103,6 +111,12 @@ export function PromotionsList({ promos, loading, onView }: PromotionsListProps)
       </CardHeader>
 
       <CardContent className="p-0">
+        <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px_120px] border-y bg-muted/30 px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase sm:grid sm:px-6">
+          <span>Promotion</span>
+          <span>Value</span>
+          <span>Status</span>
+          <span className="text-center">Actions</span>
+        </div>
         {loading ? (
           <div className="divide-y">
             {Array.from({ length: 5 }).map((_, index) => (
@@ -125,7 +139,7 @@ export function PromotionsList({ promos, loading, onView }: PromotionsListProps)
               return (
                 <div
                   key={promo.id}
-                  className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                  className="grid gap-3 p-4 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_100px_120px_120px] sm:items-center sm:px-6"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
@@ -146,22 +160,35 @@ export function PromotionsList({ promos, loading, onView }: PromotionsListProps)
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between gap-3 sm:justify-end">
-                    <p className="text-sm font-bold text-amber-600">{promoValueLabel(promo)}</p>
-                    <Badge
-                      variant="outline"
-                      className={`min-w-24 justify-center text-[11px] ${promoStatusClasses[ps]}`}
-                    >
-                      {promoStatusLabels[ps]}
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => onView(promo)}
-                      aria-label={`View ${promo.name}`}
-                    >
-                      <Eye className="size-4" />
-                    </Button>
+                  <p className="text-sm font-bold text-amber-600">{promoValueLabel(promo)}</p>
+                  <Badge
+                    variant="outline"
+                    className={`w-fit min-w-24 justify-center text-[11px] ${promoStatusClasses[ps]}`}
+                  >
+                    {promoStatusLabels[ps]}
+                  </Badge>
+                  <div className="flex items-center justify-end gap-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="outline" size="icon-sm" onClick={() => onView(promo)} aria-label={`View ${promo.name}`}>
+                          <Eye className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>View promotion</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="outline" size="icon-sm" onClick={() => onEdit(promo)} aria-label={`Edit ${promo.name}`}>
+                          <Pencil className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Edit promotion</TooltipContent>
+                    </Tooltip>
+                    <AdminDeleteDialog title={`Delete ${promo.name}?`} description="This promotion will be permanently removed." onConfirm={() => onDelete(promo)}>
+                      <Button variant="outline" size="icon-sm" className="text-destructive hover:text-destructive" aria-label={`Delete ${promo.name}`}>
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </AdminDeleteDialog>
                   </div>
                 </div>
               )

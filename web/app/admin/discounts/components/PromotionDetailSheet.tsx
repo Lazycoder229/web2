@@ -52,6 +52,8 @@ export function PromotionDetailSheet({
   onDelete,
   onToggleActive,
 }: PromotionDetailSheetProps) {
+  const menuItemIds = Array.isArray(promo?.menuItemIds) ? promo.menuItemIds : []
+
   return (
     <Sheet open={Boolean(promo)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent side="right" className="w-full p-0 sm:max-w-md">
@@ -101,11 +103,11 @@ export function PromotionDetailSheet({
                 </div>
               </div>
 
-              {promo.menuItemIds.length > 0 && (
+              {menuItemIds.length > 0 && (
                 <div className="rounded-lg border bg-muted/30 p-3">
                   <p className="mb-2 text-xs text-muted-foreground">Linked menu items</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {promo.menuItemIds.map((id) => {
+                    {menuItemIds.map((id) => {
                       const item = menuItems.find((m) => m.id === id)
                       return (
                         <Badge key={id} variant="outline" className="text-xs">

@@ -268,6 +268,16 @@ class Database {
             PDO::ATTR_EMULATE_PREPARES   => false,
         );
 
+        // php -S is one long-lived process, so reuse the MySQL connection between
+        // requests instead of reconnecting to the remote DB every time (slow).
+        // Set DB_PERSISTENT=0 in .env to turn this off.
+        if ($driver === 'mysql') {
+            $options[PDO::ATTR_TIMEOUT] = 10;
+            if (getenv('DB_PERSISTENT') !== '0') {
+                $options[PDO::ATTR_PERSISTENT] = true;
+            }
+        }
+
         try {
             $this->db = new PDO($dsn, $username, $password, $options);
             $this->driver = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME);

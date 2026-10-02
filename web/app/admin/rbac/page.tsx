@@ -54,6 +54,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Dialog,
   DialogContent,
@@ -1002,7 +1003,7 @@ export default function RbacPage() {
                           <th className="px-3 py-2.5">Assigned Role</th>
                           <th className="px-3 py-2.5">Account Status</th>
                           <th className="px-3 py-2.5">Last Login</th>
-                          <th className="px-3 py-2.5 text-right">Action</th>
+                          <th className="px-3 py-2.5 text-center">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -1049,18 +1050,25 @@ export default function RbacPage() {
                               <td className="px-3 py-2.5 text-[11px] text-muted-foreground">
                                 {user.lastLoginAt || "Never"}
                               </td>
-                              <td className="px-3 py-2.5 text-right">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setEditingUser(user)
-                                    setAssignedRoleForUser(user.roleId)
-                                  }}
-                                  className="h-7 px-2 text-xs"
-                                >
-                                  Change Role
-                                </Button>
+                              <td className="px-3 py-2.5">
+                                <div className="flex justify-center">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={() => {
+                                          setEditingUser(user)
+                                          setAssignedRoleForUser(user.roleId)
+                                        }}
+                                        aria-label={`Change role for ${user.name}`}
+                                      >
+                                        <Edit2 className="size-3.5" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Change role</TooltipContent>
+                                  </Tooltip>
+                                </div>
                               </td>
                             </tr>
                           )

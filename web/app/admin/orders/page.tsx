@@ -22,6 +22,17 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { AdminDeleteDialog } from "@/components/admin-delete-dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -44,6 +55,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
 import {
   createOrderAction,
@@ -56,6 +72,9 @@ import {
   verifyQrOrderPaymentAction,
 } from "@/lib/api/orders"
 import { getMenuDataAction } from "@/lib/api/menu"
+import { fetchTables } from "@/lib/api/tables"
+import { fetchSystemSettings } from "@/lib/api/settings"
+import { createVoidAction } from "@/lib/api/voids"
 import {
   DigitalReceipt,
   type DigitalReceiptStoreInfo,
@@ -136,6 +155,10 @@ type DiscountTypeData = {
   percentage: number
   requiresIdVerification: boolean
   isActive: boolean
+}
+
+function isSeniorPwdDiscount(name: string): boolean {
+  return /\b(senior|pwd)\b|person\s+with\s+disabilit/i.test(name)
 }
 
 const emptyForm: OrderForm = {
@@ -245,6 +268,14 @@ export default function OrdersPage() {
   const [menuItemsData, setMenuItemsData] = useState<MenuItemData[]>([])
   const [categoriesData, setCategoriesData] = useState<CategoryData[]>([])
   const [tablesData, setTablesData] = useState<TableData[]>([])
+  const [requireTableSelection, setRequireTableSelection] = useState(false)
+  const [orderSettingsLoaded, setOrderSettingsLoaded] = useState(false)
+  const [managerApprovalForVoids, setManagerApprovalForVoids] = useState(false)
+  const [seniorPwdDiscountEnabled, setSeniorPwdDiscountEnabled] =
+    useState(false)
+  const [voidRequestOrder, setVoidRequestOrder] = useState<Order | null>(null)
+  const [voidRequestReason, setVoidRequestReason] = useState("")
+  const [isSubmittingVoidRequest, setIsSubmittingVoidRequest] = useState(false)
   const [discountTypesData, setDiscountTypesData] = useState<
     DiscountTypeData[]
   >([])
@@ -327,7 +358,55 @@ export default function OrdersPage() {
         console.error("Failed to load order catalog data:", err)
       })
 
-    await Promise.all([ordersTask, catalogTask])
+    const tablesTask = fetchTables()
+      .then((tablesRes) => {
+        if (tablesRes.success && Array.isArray(tablesRes.data)) {
+          setTablesData(tablesRes.data as TableData[])
+        } else if (!tablesRes.success) {
+          toast.error("Failed to load tables", { description: tablesRes.error })
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load tables for orders:", err)
+        toast.error("Failed to load tables", {
+          description: "Please refresh the page.",
+        })
+      })
+
+    const settingsTask = fetchSystemSettings()
+      .then((settingsRes) => {
+        if (!settingsRes?.success || !settingsRes.data) {
+          toast.error("Failed to load order settings", {
+            description: settingsRes?.error ?? "Please refresh the page.",
+          })
+          return
+        }
+        const setting = settingsRes.data.requireTableSelection
+        setRequireTableSelection(
+          setting === true || setting === 1 || setting === "1"
+        )
+        const approvalSetting = settingsRes.data.managerApprovalForVoids
+        setManagerApprovalForVoids(
+          approvalSetting === true ||
+            approvalSetting === 1 ||
+            approvalSetting === "1"
+        )
+        const seniorPwdSetting = settingsRes.data.seniorPwdDiscountEnabled
+        setSeniorPwdDiscountEnabled(
+          seniorPwdSetting === true ||
+            seniorPwdSetting === 1 ||
+            seniorPwdSetting === "1"
+        )
+        setOrderSettingsLoaded(true)
+      })
+      .catch((err) => {
+        console.error("Failed to load order settings:", err)
+        toast.error("Failed to load order settings", {
+          description: "Please refresh the page.",
+        })
+      })
+
+    await Promise.all([ordersTask, catalogTask, tablesTask, settingsTask])
   }, [])
 
   useEffect(() => {
@@ -382,6 +461,25 @@ export default function OrdersPage() {
       discountTypesData.find((d) => d.id === selectedDiscountTypeId) ?? null,
     [discountTypesData, selectedDiscountTypeId]
   )
+  const selectedDiscountRequiresId = Boolean(
+    selectedDiscountType &&
+    (selectedDiscountType.requiresIdVerification ||
+      (seniorPwdDiscountEnabled &&
+        isSeniorPwdDiscount(selectedDiscountType.name)))
+  )
+
+  useEffect(() => {
+    if (
+      !seniorPwdDiscountEnabled &&
+      selectedDiscountType &&
+      isSeniorPwdDiscount(selectedDiscountType.name)
+    ) {
+      setSelectedDiscountTypeId(null)
+      setDiscountIdNumber("")
+      setDiscountHolderName("")
+      recomputeForm(form.subtotal, form.items, null)
+    }
+  }, [seniorPwdDiscountEnabled, selectedDiscountType?.id])
 
   // ---------------------------------------------------------------------------
   // Filtered / paginated orders
@@ -449,6 +547,12 @@ export default function OrdersPage() {
   // Actions
   // ---------------------------------------------------------------------------
   async function updateStatus(order: Order, status: OrderStatus) {
+    if (status === "cancelled" && managerApprovalForVoids) {
+      setVoidRequestOrder(order)
+      setVoidRequestReason("")
+      return
+    }
+
     // Optimistic update
     setOrders((current) =>
       current.map((item) => (item.id === order.id ? { ...item, status } : item))
@@ -461,6 +565,7 @@ export default function OrdersPage() {
       const res = await updateOrderStatusAction({
         orderId: order.id,
         status,
+        changedByStaffId: order.createdByStaffId,
       })
       if (!res.success) {
         throw new Error(res.error || "Failed to update status")
@@ -485,6 +590,36 @@ export default function OrdersPage() {
         description:
           err instanceof Error ? err.message : "Something went wrong.",
       })
+    }
+  }
+
+  async function submitVoidRequest() {
+    if (!voidRequestOrder || !voidRequestReason.trim()) {
+      toast.error("Reason required", {
+        description: "Enter a reason for requesting this void.",
+      })
+      return
+    }
+    setIsSubmittingVoidRequest(true)
+    try {
+      const result = await createVoidAction({
+        orderId: voidRequestOrder.id,
+        requestedByStaffId: voidRequestOrder.createdByStaffId,
+        reason: voidRequestReason.trim(),
+      })
+      if (!result.success) throw new Error(result.error || "Request failed")
+      toast.success("Void request submitted", {
+        description: `${voidRequestOrder.orderNumber} is waiting for manager approval.`,
+      })
+      setVoidRequestOrder(null)
+      setVoidRequestReason("")
+      await loadData(false)
+    } catch (err) {
+      toast.error("Failed to submit void request", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      })
+    } finally {
+      setIsSubmittingVoidRequest(false)
     }
   }
 
@@ -630,9 +765,9 @@ export default function OrdersPage() {
       })
       if (!res.success) throw new Error(res.error || "Failed to record payment")
 
-      // Snapshot the just-paid order + payment details, then open the digital receipt
-      // automatically so the cashier can show/print it for the customer right away.
-      setReceiptOrder({ ...paymentOrder, status: "completed" })
+      // Payment settlement does not change the kitchen's order status.
+      // Keep the current status in the receipt snapshot.
+      setReceiptOrder(paymentOrder)
       setReceiptPayment({
         receiptNumber: res.data.receiptNumber,
         amountPaid: paymentAmount,
@@ -673,6 +808,24 @@ export default function OrdersPage() {
   }
 
   async function saveOrder() {
+    if (!orderSettingsLoaded) {
+      toast.error("Order settings are still loading", {
+        description: "Please wait a moment and try again.",
+      })
+      return
+    }
+
+    if (
+      requireTableSelection &&
+      form.orderType === "counter" &&
+      !form.tableId
+    ) {
+      toast.error("Table required", {
+        description: "Select a table before placing a dine-in order.",
+      })
+      return
+    }
+
     if (form.items.length === 0) {
       toast.error("Cart is empty", {
         description: "Add at least one item to the order.",
@@ -681,11 +834,19 @@ export default function OrdersPage() {
     }
 
     if (
-      selectedDiscountType?.requiresIdVerification &&
-      !discountIdNumber.trim()
+      selectedDiscountType &&
+      isSeniorPwdDiscount(selectedDiscountType.name) &&
+      !seniorPwdDiscountEnabled
     ) {
+      toast.error("Senior/PWD discounts are disabled", {
+        description: "Enable them in Settings before applying this discount.",
+      })
+      return
+    }
+
+    if (selectedDiscountRequiresId && !discountIdNumber.trim()) {
       toast.error("ID number required", {
-        description: `${selectedDiscountType.name} requires a valid ID number.`,
+        description: `${selectedDiscountType?.name ?? "This discount"} requires a valid ID number.`,
       })
       return
     }
@@ -795,7 +956,9 @@ export default function OrdersPage() {
   }
 
   async function deleteOrder(order: Order) {
-    const toastId = toast.loading(`Deleting ${order.orderNumber}…`)
+    const toastId = toast.loading(
+      `Removing ${order.orderNumber} from the admin list…`
+    )
     const res = await deleteOrderAction(order.id)
     if (!res.success) {
       toast.error("Delete failed", { id: toastId, description: res.error })
@@ -805,9 +968,9 @@ export default function OrdersPage() {
     setOrders((current) => current.filter((item) => item.id !== order.id))
     setSelectedOrder(null)
     await loadData(false)
-    toast.success("Order deleted", {
+    toast.success("Order removed from admin list", {
       id: toastId,
-      description: `${order.orderNumber} was permanently removed.`,
+      description: `${order.orderNumber} remains visible in the customer order history.`,
     })
   }
 
@@ -963,7 +1126,7 @@ export default function OrdersPage() {
                       </th>
                       <th
                         scope="col"
-                        className="px-4 py-3 text-right font-medium sm:px-6"
+                        className="px-4 py-3 text-center font-medium sm:px-6"
                       >
                         Actions
                       </th>
@@ -1070,77 +1233,106 @@ export default function OrdersPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 sm:px-6">
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex min-w-max flex-wrap items-center justify-center gap-2">
                             {order.paymentStatus === "awaiting_verification" ? (
-                              <Button
-                                size="sm"
-                                onClick={() => void verifyQrPayment(order)}
-                                className="bg-amber-500 text-black hover:bg-amber-400"
-                              >
-                                Verify
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon-sm"
+                                    onClick={() => void verifyQrPayment(order)}
+                                    aria-label={`Verify payment for ${order.orderNumber}`}
+                                    className="bg-amber-500 text-black hover:bg-amber-400"
+                                  >
+                                    <Check className="size-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Verify payment</TooltipContent>
+                              </Tooltip>
                             ) : (
                               !(
                                 ["completed", "cancelled"] as OrderStatus[]
                               ).includes(order.status) &&
-                              !(
-                                order.paymentStatus === "paid" &&
-                                ["gcash", "maya"].includes(
-                                  order.paymentMethod ?? ""
-                                )
-                              ) && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => openPayment(order)}
-                                  className="bg-emerald-600 text-white hover:bg-emerald-700"
-                                >
-                                  <CreditCard className="mr-1 size-3.5" />
-                                  Pay
-                                </Button>
+                              !(order.paymentStatus === "paid") && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon-sm"
+                                      onClick={() => openPayment(order)}
+                                      aria-label={`Pay for ${order.orderNumber}`}
+                                      className="bg-emerald-600 text-white hover:bg-emerald-700"
+                                    >
+                                      <CreditCard className="size-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Pay order</TooltipContent>
+                                </Tooltip>
                               )
                             )}
                             {order.paymentStatus !==
                               "awaiting_verification" && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditSheet(order)}
-                              >
-                                <Pencil className="mr-1 size-3.5" />
-                                Edit
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon-sm"
+                                    onClick={() => openEditSheet(order)}
+                                    aria-label={`Edit ${order.orderNumber}`}
+                                  >
+                                    <Pencil className="size-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit order</TooltipContent>
+                              </Tooltip>
                             )}
                             {!(
                               ["completed", "cancelled"] as OrderStatus[]
                             ).includes(order.status) && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  void updateStatus(order, "cancelled")
-                                }
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <X className="mr-1 size-3.5" />
-                                Void
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon-sm"
+                                    onClick={() =>
+                                      void updateStatus(order, "cancelled")
+                                    }
+                                    aria-label={`Void ${order.orderNumber}`}
+                                    className="text-destructive hover:text-destructive"
+                                  >
+                                    <X className="size-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Void order</TooltipContent>
+                              </Tooltip>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() => void deleteOrder(order)}
-                              aria-label={"Delete " + order.orderNumber}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() => void viewOrder(order)}
-                              aria-label={"View " + order.orderNumber}
-                            >
-                              <Eye className="size-4" />
-                            </Button>
+                            {order.status === "completed" && (
+                              <AdminDeleteDialog
+                                title={`Remove ${order.orderNumber} from admin?`}
+                                description="This hides the completed order from admin order lists. The customer can still see it in their order history."
+                                onConfirm={() => deleteOrder(order)}
+                              >
+                                <Button
+                                  variant="outline"
+                                  size="icon-sm"
+                                  className="text-destructive hover:text-destructive"
+                                  aria-label={`Remove ${order.orderNumber} from admin list`}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </AdminDeleteDialog>
+                            )}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="icon-sm"
+                                  onClick={() => void viewOrder(order)}
+                                  aria-label={`View details for ${order.orderNumber}`}
+                                >
+                                  <Eye className="size-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>View order</TooltipContent>
+                            </Tooltip>
                           </div>
                         </td>
                       </tr>
@@ -1151,23 +1343,96 @@ export default function OrdersPage() {
             ) : loading ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[920px] text-sm">
+                  <thead className="border-y bg-muted/30 text-left text-xs text-muted-foreground">
+                    <tr>
+                      <th scope="col" className="px-4 py-3 font-medium sm:px-6">
+                        Order
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Table / customer
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Amount
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Payment
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Status
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-4 py-3 text-center font-medium sm:px-6"
+                      >
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
                   <tbody className="divide-y">
                     {Array.from({ length: 6 }).map((_, index) => (
                       <tr key={index}>
-                        <td className="px-4 py-4 sm:px-6"><Skeleton className="h-4 w-28" /></td>
-                        <td className="px-4 py-4"><Skeleton className="h-4 w-32" /></td>
-                        <td className="px-4 py-4"><Skeleton className="h-4 w-20" /></td>
-                        <td className="px-4 py-4"><Skeleton className="h-6 w-24" /></td>
-                        <td className="px-4 py-4"><Skeleton className="h-6 w-24" /></td>
-                        <td className="px-4 py-4 sm:px-6"><Skeleton className="ml-auto h-8 w-28" /></td>
+                        <td className="px-4 py-4 sm:px-6">
+                          <Skeleton className="h-4 w-28" />
+                        </td>
+                        <td className="px-4 py-4">
+                          <Skeleton className="h-4 w-32" />
+                        </td>
+                        <td className="px-4 py-4">
+                          <Skeleton className="h-4 w-20" />
+                        </td>
+                        <td className="px-4 py-4">
+                          <Skeleton className="h-6 w-24" />
+                        </td>
+                        <td className="px-4 py-4">
+                          <Skeleton className="h-6 w-24" />
+                        </td>
+                        <td className="px-4 py-4 sm:px-6">
+                          <Skeleton className="ml-auto h-8 w-28" />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             ) : (
-              <div className="p-12 text-center text-sm text-muted-foreground">
-                No orders match this view.
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[920px] text-sm">
+                  <thead className="border-y bg-muted/30 text-left text-xs text-muted-foreground">
+                    <tr>
+                      <th scope="col" className="px-4 py-3 font-medium sm:px-6">
+                        Order
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Table / customer
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Amount
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Payment
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Status
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-4 py-3 text-center font-medium sm:px-6"
+                      >
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="p-12 text-center text-sm text-muted-foreground"
+                      >
+                        No orders match this view.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>
@@ -1379,7 +1644,12 @@ export default function OrdersPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid min-w-0 gap-1.5">
-                    <Label>Table</Label>
+                    <Label>
+                      Table
+                      {requireTableSelection && form.orderType === "counter"
+                        ? " *"
+                        : ""}
+                    </Label>
                     <Select
                       value={form.tableId ?? "none"}
                       onValueChange={(value) =>
@@ -1398,7 +1668,17 @@ export default function OrdersPage() {
                         <SelectValue placeholder="Select table" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">No table</SelectItem>
+                        <SelectItem
+                          value="none"
+                          disabled={
+                            requireTableSelection &&
+                            form.orderType === "counter"
+                          }
+                        >
+                          {requireTableSelection && form.orderType === "counter"
+                            ? "Select table (required)"
+                            : "No table"}
+                        </SelectItem>
                         {tablesData.map((table) => {
                           const isTaken =
                             table.status !== "available" &&
@@ -1583,16 +1863,30 @@ export default function OrdersPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">No discount</SelectItem>
-                      {discountTypesData.map((discountType) => (
-                        <SelectItem
-                          key={discountType.id}
-                          value={discountType.id}
-                        >
-                          {discountType.name} ({discountType.percentage}%)
-                        </SelectItem>
-                      ))}
+                      {discountTypesData
+                        .filter(
+                          (discountType) =>
+                            seniorPwdDiscountEnabled ||
+                            !isSeniorPwdDiscount(discountType.name)
+                        )
+                        .map((discountType) => (
+                          <SelectItem
+                            key={discountType.id}
+                            value={discountType.id}
+                          >
+                            {discountType.name} ({discountType.percentage}%)
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
+                  {!seniorPwdDiscountEnabled &&
+                    discountTypesData.some((discountType) =>
+                      isSeniorPwdDiscount(discountType.name)
+                    ) && (
+                      <p className="text-xs text-muted-foreground">
+                        Senior/PWD discount types are disabled in Settings.
+                      </p>
+                    )}
                 </div>
 
                 {selectedDiscountType && (
@@ -1611,9 +1905,7 @@ export default function OrdersPage() {
                     <div className="grid min-w-0 gap-1.5">
                       <Label htmlFor="discount-id-number">
                         ID number
-                        {selectedDiscountType.requiresIdVerification
-                          ? " *"
-                          : ""}
+                        {selectedDiscountRequiresId ? " *" : ""}
                       </Label>
                       <Input
                         id="discount-id-number"
@@ -1622,9 +1914,7 @@ export default function OrdersPage() {
                           setDiscountIdNumber(event.target.value)
                         }
                         placeholder={
-                          selectedDiscountType.requiresIdVerification
-                            ? "Required"
-                            : "Optional"
+                          selectedDiscountRequiresId ? "Required" : "Optional"
                         }
                       />
                     </div>
@@ -1746,12 +2036,7 @@ export default function OrdersPage() {
                   !(["completed", "cancelled"] as OrderStatus[]).includes(
                     selectedOrder.status
                   ) &&
-                  !(
-                    selectedOrder.paymentStatus === "paid" &&
-                    ["gcash", "maya"].includes(
-                      selectedOrder.paymentMethod ?? ""
-                    )
-                  ) && (
+                  !(selectedOrder.paymentStatus === "paid") && (
                     <Button
                       onClick={() => openPayment(selectedOrder)}
                       className="w-full bg-emerald-600 font-semibold text-white hover:bg-emerald-700"
@@ -1771,14 +2056,21 @@ export default function OrdersPage() {
                       Edit
                     </Button>
                   )}
-                  <Button
-                    variant="outline"
-                    onClick={() => deleteOrder(selectedOrder)}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="mr-2 size-4" />
-                    Delete
-                  </Button>
+                  {selectedOrder.status === "completed" && (
+                    <AdminDeleteDialog
+                      title={`Remove ${selectedOrder.orderNumber} from admin?`}
+                      description="This hides the completed order from admin order lists. The customer can still see it in their order history."
+                      onConfirm={() => deleteOrder(selectedOrder)}
+                    >
+                      <Button
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="mr-2 size-4" />
+                        Remove from admin
+                      </Button>
+                    </AdminDeleteDialog>
+                  )}
                 </div>
                 {selectedOrder.status === "pending" && (
                   <Button
@@ -1943,6 +2235,51 @@ export default function OrdersPage() {
 
       {/* Digital receipt — opens for "View digital receipt" on a completed order,
           and automatically right after a payment is recorded (see savePayment). */}
+      <AlertDialog
+        open={Boolean(voidRequestOrder)}
+        onOpenChange={(open) => {
+          if (!open && !isSubmittingVoidRequest) {
+            setVoidRequestOrder(null)
+            setVoidRequestReason("")
+          }
+        }}
+      >
+        <AlertDialogContent className="w-[92vw] max-w-md rounded-xl sm:rounded-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Request manager approval</AlertDialogTitle>
+            <AlertDialogDescription>
+              {voidRequestOrder?.orderNumber} will remain active until a manager
+              approves the void request.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-1.5 py-2">
+            <Label htmlFor="order-void-reason">Reason for void</Label>
+            <Input
+              id="order-void-reason"
+              value={voidRequestReason}
+              onChange={(event) => setVoidRequestReason(event.target.value)}
+              placeholder="Enter the reason for this request"
+              maxLength={500}
+              disabled={isSubmittingVoidRequest}
+            />
+          </div>
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel disabled={isSubmittingVoidRequest}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isSubmittingVoidRequest || !voidRequestReason.trim()}
+              onClick={(event) => {
+                event.preventDefault()
+                void submitVoidRequest()
+              }}
+            >
+              {isSubmittingVoidRequest ? "Submitting…" : "Submit request"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Sheet
         open={Boolean(receiptOrder)}
         onOpenChange={(open) => !open && closeReceipt()}

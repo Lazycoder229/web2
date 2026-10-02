@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
+import { AdminDeleteDialog } from "@/components/admin-delete-dialog"
 import {
   Plus,
   Pencil,
@@ -624,16 +625,21 @@ export default function MenuPage() {
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                              onClick={() => handleCategoryDelete(category)}
-                              aria-label={`Delete ${category.name}`}
+                            <AdminDeleteDialog
+                              title={`Delete ${category.name}?`}
+                              description="This category will be permanently removed. Existing menu items will not be deleted."
+                              onConfirm={() => handleCategoryDelete(category)}
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                aria-label={`Delete ${category.name}`}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </AdminDeleteDialog>
                           </div>
                         </div>
                       ))

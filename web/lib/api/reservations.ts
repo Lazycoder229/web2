@@ -14,6 +14,12 @@ export async function fetchReservations(): Promise<any> {
       }
     : result
 }
+
+export async function fetchReservationTables(): Promise<any> {
+  const result = await api<any>("/tables")
+  return result.success ? result.data?.tables ?? [] : []
+}
+
 export function createReservationAction(input: AnyInput): Promise<any> {
   return api<any>("/reservations", {
     method: "POST",

@@ -27,7 +27,7 @@ class Setting extends Controller
         $this->success($this->format_settings($rows[0] ?? []));
     }
 
-    #[Put('/settings')]
+    #[Put('/settings', middleware: ['admin_auth'])]
     public function update()
     {
         $rows = $this->settings->query()->get_all();
@@ -51,7 +51,7 @@ class Setting extends Controller
         $this->success($rows[0] ?? []);
     }
 
-    #[Put('/settings/loyalty')]
+    #[Put('/settings/loyalty', middleware: ['admin_auth'])]
     public function update_loyalty()
     {
         $rows = $this->loyalty->query()->get_all();
@@ -75,7 +75,7 @@ class Setting extends Controller
         $this->success(['rewards' => array_map([$this, 'format_reward'], $rows ?: [])]);
     }
 
-    #[Post('/settings/loyalty/rewards')]
+    #[Post('/settings/loyalty/rewards', middleware: ['admin_auth'])]
     public function create_reward()
     {
         $id = $this->uuid();
@@ -84,11 +84,24 @@ class Setting extends Controller
         $this->success(['reward' => $this->format_reward($this->rewards->find($id))], 201);
     }
 
-    #[Put('/settings/loyalty/rewards/{id:uuid}')]
+    #[Put('/settings/loyalty/rewards/{id:uuid}', middleware: ['admin_auth'])]
     public function update_reward($id)
     {
         $this->rewards->query()->where('id', $id)->update($this->reward_columns($this->api->body()));
         $this->success(['reward' => $this->format_reward($this->rewards->find($id))]);
+    }
+
+    #[Get('/settings/loyalty/redemptions', middleware: ['admin_auth'])]
+    public function loyalty_redemptions()
+    {
+        $rows = $this->call->model('LoyaltyTransactionModel')->query()
+            ->select('loyalty_transactions.id,loyalty_transactions.reward_name,loyalty_transactions.points,loyalty_transactions.balance_after,loyalty_transactions.created_at,customers.id AS customer_id,customers.name AS customer_name,customers.email AS customer_email')
+            ->join('customers', 'customers.id = loyalty_transactions.customer_id')
+            ->where('loyalty_transactions.type', 'redeem')
+            ->order_by('loyalty_transactions.created_at', 'DESC')
+            ->limit(50)
+            ->get_all();
+        $this->success(['redemptions' => $rows ?: []]);
     }
 
     private function settings_columns($input)
@@ -138,6 +151,7 @@ class Setting extends Controller
         return [
             'id' => (string) $row['id'],
             'name' => $row['name'],
+            'pointsCost' => (int) $row['points_cost'],
             'pointsRequired' => (int) $row['points_cost'],
             'rewardValue' => 0,
             'description' => $row['description'],

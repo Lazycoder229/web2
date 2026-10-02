@@ -36,7 +36,7 @@ class Menu extends Controller
         ]);
     }
 
-    #[Post('/menu-items')]
+    #[Post('/menu-items', middleware: ['admin_auth'])]
     public function create_item()
     {
         $input = $this->api->body();
@@ -50,7 +50,7 @@ class Menu extends Controller
         $this->success(['item' => $this->format_item($this->items->find($id))], 201);
     }
 
-    #[Put('/menu-items/{id:uuid}')]
+    #[Put('/menu-items/{id:uuid}', middleware: ['admin_auth'])]
     public function update_item($id)
     {
         if (!$this->items->find($id)) {
@@ -66,7 +66,7 @@ class Menu extends Controller
         $this->success(['item' => $this->format_item($this->items->find($id))]);
     }
 
-    #[Delete('/menu-items/{id:uuid}')]
+    #[Delete('/menu-items/{id:uuid}', middleware: ['admin_auth'])]
     public function delete_item($id)
     {
         if (!$this->items->find($id)) {
@@ -76,7 +76,7 @@ class Menu extends Controller
         $this->success(['id' => $id]);
     }
 
-    #[Post('/menu-items/upload-image')]
+    #[Post('/menu-items/upload-image', middleware: ['admin_auth'])]
     public function upload_image()
     {
         if (!isset($_FILES['file'])) {

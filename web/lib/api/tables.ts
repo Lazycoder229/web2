@@ -3,7 +3,7 @@ import { api } from "./client"
 type AnyInput = Record<string, unknown>
 
 export async function fetchTables(): Promise<any> {
-  const result = await api<any>("/tables")
+  const result = await api<any>("/tables", { skipAuthRedirect: true })
   return result.success
     ? { ...result, data: result.data?.tables ?? [] }
     : result

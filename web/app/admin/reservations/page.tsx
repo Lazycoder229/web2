@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { AdminDeleteDialog } from "@/components/admin-delete-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -55,9 +56,15 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   createReservationAction,
   deleteReservationAction,
   fetchReservations,
+  fetchReservationTables,
   updateReservationAction,
 } from "@/lib/api/reservations"
 
@@ -213,7 +220,10 @@ export default function ReservationsPage() {
   const loadReservations = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetchReservations()
+      const [res, tableResult] = await Promise.all([
+        fetchReservations(),
+        fetchReservationTables(),
+      ])
       if (res.success) {
         setReservations(
           (res.data as any[]).map((row) => {
@@ -238,8 +248,11 @@ export default function ReservationsPage() {
             label: c.name ?? c.id,
           }))
         )
+        const tableRows = (tableResult as any[]).length
+          ? tableResult
+          : (res.tables as any[])
         setTables(
-          (res.tables as any[]).map((t) => ({
+          tableRows.map((t: any) => ({
             id: t.id,
             label: `Table ${t.tableNumber}`,
             tableNumber: String(t.tableNumber),
@@ -287,7 +300,8 @@ export default function ReservationsPage() {
           ? res.reservationDate >= todayStr &&
             !["cancelled", "completed", "no_show"].includes(res.status)
           : activeTab === "today"
-            ? res.reservationDate === todayStr
+            ? res.reservationDate === todayStr &&
+              !["cancelled", "completed", "no_show"].includes(res.status)
             : activeTab === "past"
               ? res.status === "completed" ||
                 (res.reservationDate < todayStr &&
@@ -318,13 +332,17 @@ export default function ReservationsPage() {
           r.reservationDate >= todayStr &&
           !["cancelled", "completed", "no_show"].includes(r.status)
       ).length,
-      today: reservations.filter((r) => r.reservationDate === todayStr).length,
+      today: reservations.filter(
+        (r) =>
+          r.reservationDate === todayStr &&
+          !["cancelled", "completed", "no_show"].includes(r.status)
+      ).length,
       pending: reservations.filter((r) => r.status === "pending").length,
       totalGuests: reservations
         .filter(
           (r) =>
             r.reservationDate >= todayStr &&
-            !["cancelled", "no_show"].includes(r.status)
+            !["cancelled", "completed", "no_show"].includes(r.status)
         )
         .reduce((sum, r) => sum + r.numberOfGuests, 0),
     }),
@@ -580,11 +598,20 @@ export default function ReservationsPage() {
             </div>
           </CardHeader>
 
+          <div className="hidden grid-cols-[minmax(0,1fr)_120px_300px] border-y bg-muted/30 px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase sm:grid sm:px-6">
+            <span>Guest &amp; booking</span>
+            <span>Status</span>
+            <span className="text-center">Actions</span>
+          </div>
+
           <CardContent className="p-0">
             {loading ? (
               <div className="divide-y">
                 {Array.from({ length: 5 }).map((_, index) => (
-                  <div key={index} className="flex items-center justify-between gap-3 p-4 sm:px-6">
+                  <div
+                    key={index}
+                    className="flex items-center justify-between gap-3 p-4 sm:px-6"
+                  >
                     <div className="flex min-w-0 items-center gap-3">
                       <Skeleton className="size-10 rounded-lg" />
                       <div className="space-y-2">
@@ -601,7 +628,7 @@ export default function ReservationsPage() {
                 {paginatedReservations.map((res) => (
                   <div
                     key={res.id}
-                    className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                    className="grid gap-3 p-4 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_120px_300px] sm:items-center sm:px-6"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
@@ -623,7 +650,7 @@ export default function ReservationsPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between gap-3 sm:justify-end">
+                    <div className="flex items-center gap-3 sm:justify-self-start">
                       <p className="text-xs text-muted-foreground sm:hidden">
                         {res.contactNumber}
                       </p>
@@ -633,14 +660,118 @@ export default function ReservationsPage() {
                       >
                         {statusLabels[res.status]}
                       </Badge>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => setSelectedReservation(res)}
-                        aria-label={`View ${res.customerName}`}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2 sm:justify-self-end">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="icon-sm"
+                            onClick={() => setSelectedReservation(res)}
+                            aria-label="View reservation"
+                          >
+                            <Eye className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>View reservation</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="icon-sm"
+                            onClick={() => openEditSheet(res)}
+                            aria-label="Edit reservation"
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Edit reservation</TooltipContent>
+                      </Tooltip>
+                      <AdminDeleteDialog
+                        title={`Delete ${res.customerName}'s booking?`}
+                        description="This reservation will be permanently removed. The guest will not be notified automatically."
+                        onConfirm={() => deleteReservation(res)}
                       >
-                        <Eye className="size-4" />
-                      </Button>
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          className="text-destructive hover:text-destructive"
+                          aria-label="Delete reservation"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </AdminDeleteDialog>
+                      {res.status === "pending" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon-sm"
+                              onClick={() =>
+                                void updateStatus(res, "confirmed")
+                              }
+                              className="bg-amber-500 text-neutral-950 hover:bg-amber-400"
+                              aria-label="Confirm booking"
+                            >
+                              <Check className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Confirm booking</TooltipContent>
+                        </Tooltip>
+                      )}
+                      {res.status === "confirmed" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon-sm"
+                              onClick={() =>
+                                void updateStatus(res, "completed")
+                              }
+                              className="bg-emerald-600 text-white hover:bg-emerald-700"
+                              aria-label="Mark completed"
+                            >
+                              <Check className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Mark completed</TooltipContent>
+                        </Tooltip>
+                      )}
+                      {["pending", "confirmed"].includes(res.status) && (
+                        <>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon-sm"
+                                className="text-sky-700 hover:text-sky-700"
+                                onClick={() =>
+                                  void updateStatus(res, "no_show")
+                                }
+                                aria-label="Mark no show"
+                              >
+                                <UserRound className="size-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Mark no show</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon-sm"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() =>
+                                  void updateStatus(res, "cancelled")
+                                }
+                                aria-label="Cancel reservation"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Cancel reservation</TooltipContent>
+                          </Tooltip>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}

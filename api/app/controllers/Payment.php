@@ -2,13 +2,16 @@
 
 defined('PREVENT_DIRECT_ACCESS') or exit('No direct script access allowed');
 
-#[Route('/api')]
+#[Route('/api', middleware: ['admin_auth'])]
 class Payment extends Controller
 {
     private $api;
     private $payments;
     private $orders;
     private $users;
+    private $customers;
+    private $loyalty;
+    private $loyaltySettings;
 
     public function __construct()
     {
@@ -18,6 +21,9 @@ class Payment extends Controller
         $this->payments = $this->call->model('PaymentModel');
         $this->orders = $this->call->model('OrderModel');
         $this->users = $this->call->model('UserModel');
+        $this->customers = $this->call->model('CustomerModel');
+        $this->loyalty = $this->call->model('LoyaltyTransactionModel');
+        $this->loyaltySettings = $this->call->model('LoyaltySettingModel');
     }
 
     #[Post('/payments')]
@@ -63,9 +69,11 @@ class Payment extends Controller
             'payment_status' => 'paid',
             'payment_method' => $method,
             'payment_reference' => $input['referenceNumber'] ?? null,
-            'status' => 'completed',
+            'status' => $order['status'] === 'pending' ? 'preparing' : $order['status'],
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+        $paidOrder = $this->orders->find($order['id']);
+        $this->loyalty->award_for_paid_order($paidOrder, $this->customers, $this->loyaltySettings);
         $this->success([
             'receiptNumber' => $receipt,
             'change' => round($amount - (float) $order['total'], 2),

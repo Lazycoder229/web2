@@ -27,7 +27,7 @@ class Category extends Controller
         $this->success(['categories' => array_map([$this, 'format_category'], $rows ?: [])]);
     }
 
-    #[Post('/')]
+    #[Post('/', middleware: ['admin_auth'])]
     public function create()
     {
         $input = $this->api->body();
@@ -52,7 +52,7 @@ class Category extends Controller
         $this->success(['category' => $this->format_category($this->categories->find($id))], 201);
     }
 
-    #[Put('/{id:uuid}')]
+    #[Put('/{id:uuid}', middleware: ['admin_auth'])]
     public function update($id)
     {
         $input = $this->api->body();
@@ -83,7 +83,7 @@ class Category extends Controller
         $this->success(['category' => $this->format_category($this->categories->find($id))]);
     }
 
-    #[Delete('/{id:uuid}')]
+    #[Delete('/{id:uuid}', middleware: ['admin_auth'])]
     public function delete($id)
     {
         if (!$this->categories->find($id)) {

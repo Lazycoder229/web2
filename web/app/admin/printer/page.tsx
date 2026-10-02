@@ -69,6 +69,7 @@ import {
   fetchPrinters,
   updatePrinterAction,
 } from "@/lib/api/printers"
+import { fetchSystemSettings } from "@/lib/api/settings"
 
 // ---------------------------------------------------------------------------
 // Types — mirrors `printers` table in `dbdesign.md`
@@ -151,6 +152,16 @@ const PAGE_SIZE = 8
 export default function PrinterSettingsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [printers, setPrinters] = useState<PrinterDevice[]>([])
+  const [receiptSettings, setReceiptSettings] = useState({
+    restaurantName: "PRIME POS ECOSYSTEM",
+    branchName: "",
+    address: "",
+    contactNumber: "",
+    tinNumber: "",
+    birMin: "",
+    receiptHeader: "",
+    receiptFooter: "",
+  })
   const [locationFilter, setLocationFilter] = useState<string>("all")
   const [connectionFilter, setConnectionFilter] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -168,6 +179,22 @@ export default function PrinterSettingsPage() {
 
   useEffect(() => {
     void loadPrinters(true)
+    void fetchSystemSettings().then((result) => {
+      if (!result?.success || !result.data) return
+      setReceiptSettings((current) => ({
+        ...current,
+        restaurantName: result.data.restaurantName?.trim() || current.restaurantName,
+        branchName: result.data.branchName?.trim() || "",
+        address: result.data.address?.trim() || "",
+        contactNumber: result.data.contactNumber?.trim() || "",
+        tinNumber: result.data.tinNumber?.trim() || "",
+        birMin: result.data.birMin?.trim() || "",
+        receiptHeader: result.data.receiptHeader?.trim() || "",
+        receiptFooter: result.data.receiptFooter?.trim() || "",
+      }))
+    }).catch(() => {
+      // Keep the fallback branding if settings cannot be loaded.
+    })
   }, [])
 
   async function loadPrinters(showLoading = false) {
@@ -987,9 +1014,16 @@ export default function PrinterSettingsPage() {
           {/* Realistic Receipt Slip Mockup */}
           <div className="my-2 rounded-lg border bg-neutral-50 p-4 font-mono text-xs text-neutral-800 shadow-inner dark:bg-neutral-950 dark:text-neutral-200">
             <div className="space-y-0.5 border-b border-dashed border-neutral-400 pb-2 text-center">
-              <p className="text-sm font-bold tracking-wider">
-                PRIME POS ECOSYSTEM
+              <p className="text-sm font-bold uppercase tracking-wider">
+                {receiptSettings.restaurantName}
               </p>
+              {receiptSettings.branchName && <p className="text-[10px]">{receiptSettings.branchName}</p>}
+              {receiptSettings.address && <p className="whitespace-pre-line text-[9px] text-neutral-500">{receiptSettings.address}</p>}
+              {receiptSettings.contactNumber && <p className="text-[9px] text-neutral-500">Tel: {receiptSettings.contactNumber}</p>}
+              {receiptSettings.tinNumber && <p className="text-[9px] text-neutral-500">VAT REG TIN: {receiptSettings.tinNumber}</p>}
+              {receiptSettings.birMin && <p className="text-[9px] text-neutral-500">MIN: {receiptSettings.birMin}</p>}
+              {receiptSettings.receiptHeader && <p className="whitespace-pre-line pt-1 text-[9px] italic">{receiptSettings.receiptHeader}</p>}
+              <div className="border-t border-dashed border-neutral-400 pt-1" />
               <p className="text-[10px] text-neutral-500">
                 DIAGNOSTIC TEST TICKET
               </p>
@@ -1032,6 +1066,7 @@ export default function PrinterSettingsPage() {
             <div className="mt-2 border-t border-dashed border-neutral-400 pt-2 text-center text-[10px] text-neutral-500">
               <p>*** END OF TEST TICKET ***</p>
               <p className="mt-0.5 text-[9px]">[Knife Cut Executed]</p>
+              {receiptSettings.receiptFooter && <p className="whitespace-pre-line pt-1 text-[9px] italic">{receiptSettings.receiptFooter}</p>}
             </div>
           </div>
 

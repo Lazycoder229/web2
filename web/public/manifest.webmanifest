@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "PRIME POS",
+  "short_name": "PRIME POS",
+  "description": "Restaurant ordering and operations",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "/icons/pards-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/pards-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "background_color": "#ffffff",
+  "theme_color": "#f59e0b"
+}

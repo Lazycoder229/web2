@@ -135,7 +135,11 @@ class Api
     {
         $this->_lava = lava_instance();
         $this->_lava->call->library('cache');
-        if (in_array(strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'), ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+        // Auth endpoints (login/refresh/logout) don't change admin data, so skip
+        // the cache-tag invalidation (a disk read/write) for them.
+        $request_path = (string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+        $is_auth_request = (bool) preg_match('#/(auth|customers)/(login|refresh|logout)/?$#', $request_path);
+        if (!$is_auth_request && in_array(strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'), ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
             $this->_lava->cache->invalidate_tags(['admin_data']);
         }
         $this->_lava->config->load('api');
@@ -531,6 +535,8 @@ class Api
             'iat'  => $now,
             'exp'  => $now + $this->refresh_token_expiration,
             'sub'  => $user_id,
+            'role' => $user_data['role'] ?? 'user',
+            'scopes' => $scopes,
             'type' => 'refresh',
             'jti'  => bin2hex(random_bytes(16)),
         ];
@@ -563,7 +569,7 @@ class Api
      * refresh_access_token
      *
      * @param string $refresh_token
-     * @return void
+     * @return array<string,mixed>
      */
     public function refresh_access_token($refresh_token)
     {
@@ -588,11 +594,10 @@ class Api
         // Revoke old + rotate (best practice)
         $this->revoke_refresh_token($refresh_token);
 
-        $new_tokens = $this->issue_tokens(['id' => $payload['sub']]);
-
-        $this->respond([
-            'message' => 'Tokens refreshed successfully',
-            'tokens'  => $new_tokens
+        return $this->issue_tokens([
+            'id' => $payload['sub'],
+            'role' => $payload['role'] ?? 'user',
+            'scopes' => $payload['scopes'] ?? ['read'],
         ]);
     }
 

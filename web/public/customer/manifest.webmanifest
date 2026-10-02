@@ -1,0 +1,25 @@
+{
+  "id": "/customer",
+  "name": "PRIME POS Customer",
+  "short_name": "PRIME Customer",
+  "description": "Order, manage reservations, and collect rewards with PRIME POS",
+  "start_url": "/customer",
+  "scope": "/customer",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "/icons/pards-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/pards-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

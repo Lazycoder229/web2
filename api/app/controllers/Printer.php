@@ -2,7 +2,7 @@
 
 defined('PREVENT_DIRECT_ACCESS') or exit('No direct script access allowed');
 
-#[Route('/api')]
+#[Route('/api', middleware: ['admin_auth'])]
 class Printer extends Controller
 {
     private $api;

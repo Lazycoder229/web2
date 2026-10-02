@@ -43,6 +43,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -71,8 +72,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "sonner"
-import { AdminDataSkeleton } from "@/components/admin-data-skeleton"
 
 import { fetchReportsData, createExpenseAction } from "@/lib/api/reports"
 
@@ -194,8 +199,6 @@ interface CategoryRevenue {
   revenue: number
   quantitySold: number
 }
-
-const DAILY_SALES: DailySalesPoint[] = []
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -373,6 +376,7 @@ export default function ReportsPage() {
   const [paymentBreakdown, setPaymentBreakdown] = useState<PaymentBreakdown[]>(
     []
   )
+  const [dailySales, setDailySales] = useState<DailySalesPoint[]>([])
   const [orderTypeBreakdown, setOrderTypeBreakdown] = useState<
     OrderTypeBreakdown[]
   >([])
@@ -386,6 +390,10 @@ export default function ReportsPage() {
     []
   )
   const [promoInsights, setPromoInsights] = useState<PromoInsight[]>([])
+  const [isSalesDetailsOpen, setIsSalesDetailsOpen] = useState(false)
+  const [isExpenseLedgerOpen, setIsExpenseLedgerOpen] = useState(true)
+  const [isExpenseBreakdownOpen, setIsExpenseBreakdownOpen] = useState(false)
+  const [isCostDistributionOpen, setIsCostDistributionOpen] = useState(false)
   const [expensePage, setExpensePage] = useState(1)
   const [expandedExpense, setExpandedExpense] = useState<string | null>(null)
   const [expenseSearch, setExpenseSearch] = useState("")
@@ -422,6 +430,7 @@ export default function ReportsPage() {
       }
 
       setReportSummary(result.data.summary)
+      setDailySales(result.data.dailySales as DailySalesPoint[])
       setPaymentBreakdown(result.data.paymentBreakdown as PaymentBreakdown[])
       setOrderTypeBreakdown(
         result.data.orderTypeBreakdown as OrderTypeBreakdown[]
@@ -612,8 +621,8 @@ export default function ReportsPage() {
   }, [reportSummary, transactions, discountInsights, promoInsights])
 
   const maxDailyRevenue = useMemo(
-    () => Math.max(...DAILY_SALES.map((d) => d.revenue)),
-    []
+    () => Math.max(...dailySales.map((d) => d.revenue), 1),
+    [dailySales]
   )
 
   // ---------------------------------------------------------------------------
@@ -723,15 +732,6 @@ export default function ReportsPage() {
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
-  if (isLoading)
-    return (
-      <AdminDataSkeleton
-        rows={7}
-        title="Reports & Analytics"
-        description="Sales performance, expenses, and business insights."
-      />
-    )
-
   return (
     <div className="w-full min-w-0 overflow-x-hidden pb-16 sm:pb-8">
       <Toaster richColors position="top-right" />
@@ -884,7 +884,7 @@ export default function ReportsPage() {
                       <m.icon className={`size-3.5 sm:size-4 ${m.color}`} />
                     </div>
                     <div className="text-lg font-bold tracking-tight sm:text-xl">
-                      {m.value}
+                      {isLoading ? <Skeleton className="h-6 w-24" /> : m.value}
                     </div>
                     <div
                       className={`text-[10px] font-medium sm:text-xs ${m.up === true ? "text-emerald-600 dark:text-emerald-400" : m.up === false ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}
@@ -902,103 +902,162 @@ export default function ReportsPage() {
               ))}
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-3">
-              {/* Daily Revenue Chart */}
-              <Card className="border bg-card shadow-xs lg:col-span-2">
-                <CardHeader className="p-4 pb-2">
-                  <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                    <BarChart3 className="size-4 text-amber-500" />
-                    Daily Revenue Trend
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 pt-2">
-                  <MiniBarChart data={DAILY_SALES} maxVal={maxDailyRevenue} />
-                  {DAILY_SALES.length === 0 && (
-                    <p className="mt-3 text-center text-xs text-muted-foreground">
-                      No sales data available.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
+            <button
+              type="button"
+              aria-expanded={isSalesDetailsOpen}
+              onClick={() => setIsSalesDetailsOpen((open) => !open)}
+              className="flex w-full items-center justify-between rounded-lg border bg-card p-3 text-left shadow-xs transition-colors hover:bg-muted/30"
+            >
+              <span>
+                <span className="block text-sm font-semibold">
+                  Sales charts and breakdowns
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Daily revenue, payment methods, and order sources
+                </span>
+              </span>
+              <ChevronRight
+                className={`size-4 shrink-0 text-muted-foreground transition-transform ${isSalesDetailsOpen ? "rotate-90" : ""}`}
+              />
+            </button>
 
-              {/* Payment Method Breakdown */}
-              <Card className="border bg-card shadow-xs">
-                <CardHeader className="p-4 pb-2">
-                  <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                    <CreditCard className="size-4 text-sky-500" />
-                    Payment Breakdown
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 p-4 pt-2">
-                  {paymentBreakdown.map((pb) => (
-                    <DonutSegment
-                      key={pb.method}
-                      percentage={pb.percentage}
-                      color={
-                        pb.method === "cash"
-                          ? "bg-emerald-500"
-                          : pb.method === "gcash"
-                            ? "bg-sky-500"
-                            : pb.method === "maya"
-                              ? "bg-fuchsia-500"
-                              : pb.method === "card"
-                                ? "bg-violet-500"
-                                : "bg-neutral-400"
-                      }
-                      label={`${paymentMethodLabels[pb.method]} (${pb.count})`}
-                      amount={formatCompact(pb.total)}
-                    />
-                  ))}
-                  <div className="border-t border-border pt-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold">Total</span>
-                      <span className="font-bold">
-                        {formatCompact(
-                          paymentBreakdown.reduce((s, p) => s + p.total, 0)
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Order Source Breakdown */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              {orderTypeBreakdown.map((ob) => (
-                <Card key={ob.type} className="border bg-card shadow-xs">
-                  <CardContent className="flex items-center gap-4 p-4">
-                    <div
-                      className={`flex size-12 items-center justify-center rounded-xl ${ob.type === "qr" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-sky-500/10 text-sky-600 dark:text-sky-400"}`}
-                    >
-                      {ob.type === "qr" ? (
-                        <Smartphone className="size-6" />
+            {isSalesDetailsOpen && (
+              <>
+                <div className="grid gap-4 lg:grid-cols-3">
+                  {/* Daily Revenue Chart */}
+                  <Card className="border bg-card shadow-xs lg:col-span-2">
+                    <CardHeader className="p-4 pb-2">
+                      <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                        <BarChart3 className="size-4 text-amber-500" />
+                        Daily Revenue Trend
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-4 pt-2">
+                      {isLoading ? (
+                        <Skeleton className="h-32 w-full" />
                       ) : (
-                        <Utensils className="size-6" />
+                        <MiniBarChart
+                          data={dailySales}
+                          maxVal={maxDailyRevenue}
+                        />
                       )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                        {ob.type === "qr" ? "QR Orders" : "Counter Orders"}
+                      {!isLoading && dailySales.length === 0 && (
+                        <p className="mt-3 text-center text-xs text-muted-foreground">
+                          No sales data available.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Payment Method Breakdown */}
+                  <Card className="border bg-card shadow-xs">
+                    <CardHeader className="p-4 pb-2">
+                      <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                        <CreditCard className="size-4 text-sky-500" />
+                        Payment Breakdown
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3 p-4 pt-2">
+                      {isLoading
+                        ? Array.from({ length: 4 }).map((_, index) => (
+                            <Skeleton key={index} className="h-5 w-full" />
+                          ))
+                        : paymentBreakdown.map((pb) => (
+                            <DonutSegment
+                              key={pb.method}
+                              percentage={pb.percentage}
+                              color={
+                                pb.method === "cash"
+                                  ? "bg-emerald-500"
+                                  : pb.method === "gcash"
+                                    ? "bg-sky-500"
+                                    : pb.method === "maya"
+                                      ? "bg-fuchsia-500"
+                                      : pb.method === "card"
+                                        ? "bg-violet-500"
+                                        : "bg-neutral-400"
+                              }
+                              label={`${paymentMethodLabels[pb.method]} (${pb.count})`}
+                              amount={formatCompact(pb.total)}
+                            />
+                          ))}
+                      <div className="border-t border-border pt-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold">Total</span>
+                          <span className="font-bold">
+                            {isLoading ? (
+                              <Skeleton className="h-4 w-16" />
+                            ) : (
+                              formatCompact(
+                                paymentBreakdown.reduce(
+                                  (s, p) => s + p.total,
+                                  0
+                                )
+                              )
+                            )}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-lg font-bold">
-                        {formatCompact(ob.total)}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {ob.count} orders · {ob.percentage}% of total
-                      </div>
-                    </div>
-                    <div className="h-10 w-px bg-border" />
-                    <div className="text-right">
-                      <div className="text-lg font-bold">{ob.percentage}%</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        share
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Order Source Breakdown */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {(isLoading
+                    ? (["qr", "counter"] as OrderType[]).map((type) => ({
+                        type,
+                        count: 0,
+                        total: 0,
+                        percentage: 0,
+                      }))
+                    : orderTypeBreakdown
+                  ).map((ob) => (
+                    <Card key={ob.type} className="border bg-card shadow-xs">
+                      <CardContent className="flex items-center gap-4 p-4">
+                        <div
+                          className={`flex size-12 items-center justify-center rounded-xl ${ob.type === "qr" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-sky-500/10 text-sky-600 dark:text-sky-400"}`}
+                        >
+                          {ob.type === "qr" ? (
+                            <Smartphone className="size-6" />
+                          ) : (
+                            <Utensils className="size-6" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                            {ob.type === "qr" ? "QR Orders" : "Counter Orders"}
+                          </div>
+                          <div className="text-lg font-bold">
+                            {isLoading ? (
+                              <Skeleton className="h-6 w-24" />
+                            ) : (
+                              formatCompact(ob.total)
+                            )}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {isLoading ? (
+                              <Skeleton className="h-3 w-32" />
+                            ) : (
+                              `${ob.count} orders · ${ob.percentage}% of total`
+                            )}
+                          </div>
+                        </div>
+                        <div className="h-10 w-px bg-border" />
+                        <div className="text-right">
+                          <div className="text-lg font-bold">
+                            {ob.percentage}%
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            share
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -1075,16 +1134,25 @@ export default function ReportsPage() {
             <Card className="border bg-card shadow-xs">
               <CardHeader className="p-4 pb-3">
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                  <div>
-                    <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                      <Wallet className="size-4 text-rose-500" />
-                      Expense Ledger & Records
-                    </CardTitle>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Track, create, update, and manage all operating costs and
-                      purchases.
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    aria-expanded={isExpenseLedgerOpen}
+                    onClick={() => setIsExpenseLedgerOpen((open) => !open)}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                  >
+                    <span>
+                      <CardTitle className="text-base font-semibold">
+                        Expense Ledger &amp; Records
+                      </CardTitle>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Track, create, update, and manage all operating costs
+                        and purchases.
+                      </span>
+                    </span>
+                    <ChevronRight
+                      className={`size-4 shrink-0 text-muted-foreground transition-transform ${isExpenseLedgerOpen ? "rotate-90" : ""}`}
+                    />
+                  </button>
                   <Button
                     onClick={handleOpenAddExpense}
                     size="sm"
@@ -1095,370 +1163,417 @@ export default function ReportsPage() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4 p-4 pt-0">
-                {/* Search & Category Filter */}
-                <div className="flex flex-col gap-2.5 sm:flex-row">
-                  <div className="relative flex-1">
-                    <Search className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search description, receipt ref, staff..."
-                      value={expenseSearch}
-                      onChange={(e) => {
-                        setExpenseSearch(e.target.value)
-                        setExpensePage(1)
-                      }}
-                      className="h-9 pl-8 text-xs"
-                    />
-                    {expenseSearch && (
-                      <button
-                        onClick={() => {
-                          setExpenseSearch("")
+              {isExpenseLedgerOpen && (
+                <CardContent className="space-y-4 p-4 pt-0">
+                  {/* Search & Category Filter */}
+                  <div className="flex flex-col gap-2.5 sm:flex-row">
+                    <div className="relative flex-1">
+                      <Search className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search description, receipt ref, staff..."
+                        value={expenseSearch}
+                        onChange={(e) => {
+                          setExpenseSearch(e.target.value)
                           setExpensePage(1)
                         }}
-                        className="absolute top-2.5 right-2.5 text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <Select
-                    value={expenseCategoryFilter}
-                    onValueChange={(val) => {
-                      setExpenseCategoryFilter(val ?? "all")
-                      setExpensePage(1)
-                    }}
-                  >
-                    <SelectTrigger className="h-9 w-full text-xs sm:w-[210px]">
-                      <SelectValue placeholder="All Categories" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">
-                        All Categories ({expenses.length})
-                      </SelectItem>
-                      {expenseCategories.map((cat) => {
-                        const count = expenses.filter(
-                          (e) => e.categoryId === cat.id
-                        ).length
-                        return (
-                          <SelectItem key={cat.id} value={cat.id}>
-                            {cat.name} ({count})
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Expenses Table */}
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="border-b border-border bg-muted/40 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-                        <tr>
-                          <th className="px-3 py-2.5">Date</th>
-                          <th className="px-3 py-2.5">Category</th>
-                          <th className="px-3 py-2.5">Description & Notes</th>
-                          <th className="px-3 py-2.5">Receipt / Ref</th>
-                          <th className="px-3 py-2.5">Recorded By</th>
-                          <th className="px-3 py-2.5 text-right">Amount</th>
-                          <th className="px-3 py-2.5 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {filteredExpenses.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={7}
-                              className="py-8 text-center text-muted-foreground"
-                            >
-                              <div className="flex flex-col items-center justify-center gap-1">
-                                <Wallet className="mb-1 size-8 text-muted-foreground/40" />
-                                <p className="text-xs font-medium text-foreground">
-                                  No expenses found
-                                </p>
-                                <p className="text-[11px] text-muted-foreground">
-                                  Try adjusting your filters or record a new
-                                  expense.
-                                </p>
-                              </div>
-                            </td>
-                          </tr>
-                        ) : (
-                          paginatedExpenses.map((exp) => {
-                            const cat = expenseCategories.find(
-                              (c) => c.id === exp.categoryId
-                            )
-                            return (
-                              <tr
-                                key={exp.id}
-                                className="transition-colors hover:bg-muted/30"
-                              >
-                                <td className="px-3 py-2.5 font-medium whitespace-nowrap">
-                                  {exp.expenseDate}
-                                </td>
-                                <td className="px-3 py-2.5 whitespace-nowrap">
-                                  <Badge
-                                    variant="outline"
-                                    className="border-border text-[10px] font-medium"
-                                    style={{
-                                      borderColor: `${cat?.color || "#6b7280"}40`,
-                                      color: cat?.color || "inherit",
-                                    }}
-                                  >
-                                    {cat?.name || "Other"}
-                                  </Badge>
-                                </td>
-                                <td className="max-w-[260px] px-3 py-2.5">
-                                  <div className="truncate font-medium text-foreground">
-                                    {exp.description}
-                                  </div>
-                                  {exp.notes && (
-                                    <div className="truncate text-[10px] text-muted-foreground">
-                                      {exp.notes}
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2.5 whitespace-nowrap">
-                                  {exp.receiptReference ? (
-                                    <span className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                                      {exp.receiptReference}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[11px] text-muted-foreground/50">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
-                                  {exp.recordedByStaffName}
-                                </td>
-                                <td className="px-3 py-2.5 text-right font-bold whitespace-nowrap text-foreground tabular-nums">
-                                  {formatPeso(exp.amount)}
-                                </td>
-                                <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="size-7 text-muted-foreground hover:text-foreground"
-                                      onClick={() => handleOpenEditExpense(exp)}
-                                      title="Edit expense"
-                                    >
-                                      <Pencil className="size-3.5" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="size-7 text-rose-500 hover:bg-rose-500/10 hover:text-rose-700"
-                                      onClick={() =>
-                                        setDeletingExpenseId(exp.id)
-                                      }
-                                      title="Delete expense"
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Pagination Controls */}
-                <div className="flex flex-col justify-between gap-2 pt-1 sm:flex-row sm:items-center">
-                  <div className="text-xs text-muted-foreground">
-                    {filteredExpenses.length === 0 ? (
-                      "0 expenses"
-                    ) : (
-                      <>
-                        Showing{" "}
-                        <span className="font-medium text-foreground">
-                          {(expensePage - 1) * EXPENSE_PAGE_SIZE + 1}
-                        </span>{" "}
-                        to{" "}
-                        <span className="font-medium text-foreground">
-                          {Math.min(
-                            expensePage * EXPENSE_PAGE_SIZE,
-                            filteredExpenses.length
-                          )}
-                        </span>{" "}
-                        of{" "}
-                        <span className="font-medium text-foreground">
-                          {filteredExpenses.length}
-                        </span>{" "}
-                        expenses
-                        <span className="ml-1.5 text-[11px] text-muted-foreground">
-                          (10 per page)
-                        </span>
-                      </>
-                    )}
-                  </div>
-
-                  {expenseTotalPages > 1 && (
-                    <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 gap-1 px-2.5 text-xs"
-                        disabled={expensePage <= 1}
-                        onClick={() =>
-                          setExpensePage((p) => Math.max(1, p - 1))
-                        }
-                      >
-                        <ChevronLeft className="size-3.5" />
-                        <span>Prev</span>
-                      </Button>
-                      <span className="px-2 text-xs font-medium text-muted-foreground">
-                        Page {expensePage} of {expenseTotalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 gap-1 px-2.5 text-xs"
-                        disabled={expensePage >= expenseTotalPages}
-                        onClick={() =>
-                          setExpensePage((p) =>
-                            Math.min(expenseTotalPages, p + 1)
-                          )
-                        }
-                      >
-                        <span>Next</span>
-                        <ChevronRight className="size-3.5" />
-                      </Button>
+                        className="h-9 pl-8 text-xs"
+                      />
+                      {expenseSearch && (
+                        <button
+                          onClick={() => {
+                            setExpenseSearch("")
+                            setExpensePage(1)
+                          }}
+                          className="absolute top-2.5 right-2.5 text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      )}
                     </div>
-                  )}
-                </div>
-              </CardContent>
+                    <Select
+                      value={expenseCategoryFilter}
+                      onValueChange={(val) => {
+                        setExpenseCategoryFilter(val ?? "all")
+                        setExpensePage(1)
+                      }}
+                    >
+                      <SelectTrigger className="h-9 w-full text-xs sm:w-[210px]">
+                        <SelectValue placeholder="All Categories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          All Categories ({expenses.length})
+                        </SelectItem>
+                        {expenseCategories.map((cat) => {
+                          const count = expenses.filter(
+                            (e) => e.categoryId === cat.id
+                          ).length
+                          return (
+                            <SelectItem key={cat.id} value={cat.id}>
+                              {cat.name} ({count})
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Expenses Table */}
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="border-b border-border bg-muted/40 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+                          <tr>
+                            <th className="px-3 py-2.5">Date</th>
+                            <th className="px-3 py-2.5">Category</th>
+                            <th className="px-3 py-2.5">Description & Notes</th>
+                            <th className="px-3 py-2.5">Receipt / Ref</th>
+                            <th className="px-3 py-2.5">Recorded By</th>
+                            <th className="px-3 py-2.5 text-right">Amount</th>
+                            <th className="px-3 py-2.5 text-center">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {filteredExpenses.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={7}
+                                className="py-8 text-center text-muted-foreground"
+                              >
+                                <div className="flex flex-col items-center justify-center gap-1">
+                                  <Wallet className="mb-1 size-8 text-muted-foreground/40" />
+                                  <p className="text-xs font-medium text-foreground">
+                                    No expenses found
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Try adjusting your filters or record a new
+                                    expense.
+                                  </p>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            paginatedExpenses.map((exp) => {
+                              const cat = expenseCategories.find(
+                                (c) => c.id === exp.categoryId
+                              )
+                              return (
+                                <tr
+                                  key={exp.id}
+                                  className="transition-colors hover:bg-muted/30"
+                                >
+                                  <td className="px-3 py-2.5 font-medium whitespace-nowrap">
+                                    {exp.expenseDate}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap">
+                                    <Badge
+                                      variant="outline"
+                                      className="border-border text-[10px] font-medium"
+                                      style={{
+                                        borderColor: `${cat?.color || "#6b7280"}40`,
+                                        color: cat?.color || "inherit",
+                                      }}
+                                    >
+                                      {cat?.name || "Other"}
+                                    </Badge>
+                                  </td>
+                                  <td className="max-w-[260px] px-3 py-2.5">
+                                    <div className="truncate font-medium text-foreground">
+                                      {exp.description}
+                                    </div>
+                                    {exp.notes && (
+                                      <div className="truncate text-[10px] text-muted-foreground">
+                                        {exp.notes}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap">
+                                    {exp.receiptReference ? (
+                                      <span className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                        {exp.receiptReference}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-muted-foreground/50">
+                                        —
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
+                                    {exp.recordedByStaffName}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right font-bold whitespace-nowrap text-foreground tabular-nums">
+                                    {formatPeso(exp.amount)}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-7"
+                                            onClick={() =>
+                                              handleOpenEditExpense(exp)
+                                            }
+                                            aria-label={`Edit expense: ${exp.description}`}
+                                          >
+                                            <Pencil className="size-3.5" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          Edit expense
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-7 text-rose-500 hover:bg-rose-500/10 hover:text-rose-700"
+                                            onClick={() =>
+                                              setDeletingExpenseId(exp.id)
+                                            }
+                                            aria-label={`Delete expense: ${exp.description}`}
+                                          >
+                                            <Trash2 className="size-3.5" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          Delete expense
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Pagination Controls */}
+                  <div className="flex flex-col justify-between gap-2 pt-1 sm:flex-row sm:items-center">
+                    <div className="text-xs text-muted-foreground">
+                      {filteredExpenses.length === 0 ? (
+                        "0 expenses"
+                      ) : (
+                        <>
+                          Showing{" "}
+                          <span className="font-medium text-foreground">
+                            {(expensePage - 1) * EXPENSE_PAGE_SIZE + 1}
+                          </span>{" "}
+                          to{" "}
+                          <span className="font-medium text-foreground">
+                            {Math.min(
+                              expensePage * EXPENSE_PAGE_SIZE,
+                              filteredExpenses.length
+                            )}
+                          </span>{" "}
+                          of{" "}
+                          <span className="font-medium text-foreground">
+                            {filteredExpenses.length}
+                          </span>{" "}
+                          expenses
+                          <span className="ml-1.5 text-[11px] text-muted-foreground">
+                            (10 per page)
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {expenseTotalPages > 1 && (
+                      <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1 px-2.5 text-xs"
+                          disabled={expensePage <= 1}
+                          onClick={() =>
+                            setExpensePage((p) => Math.max(1, p - 1))
+                          }
+                        >
+                          <ChevronLeft className="size-3.5" />
+                          <span>Prev</span>
+                        </Button>
+                        <span className="px-2 text-xs font-medium text-muted-foreground">
+                          Page {expensePage} of {expenseTotalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1 px-2.5 text-xs"
+                          disabled={expensePage >= expenseTotalPages}
+                          onClick={() =>
+                            setExpensePage((p) =>
+                              Math.min(expenseTotalPages, p + 1)
+                            )
+                          }
+                        >
+                          <span>Next</span>
+                          <ChevronRight className="size-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              )}
             </Card>
 
             {/* Expense Breakdown by Category Accordion */}
             <Card className="border bg-card shadow-xs">
               <CardHeader className="p-4 pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                  <Wallet className="size-4 text-rose-500" />
-                  Category Breakdown & Aggregates
-                </CardTitle>
+                <button
+                  type="button"
+                  aria-expanded={isExpenseBreakdownOpen}
+                  onClick={() => setIsExpenseBreakdownOpen((open) => !open)}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                  <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                    <Wallet className="size-4 text-rose-500" />
+                    Category Breakdown &amp; Aggregates
+                  </CardTitle>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs font-semibold text-rose-600 tabular-nums dark:text-rose-400">
+                      {formatPeso(totalExpenses)}
+                    </span>
+                    <ChevronRight
+                      className={`size-4 text-muted-foreground transition-transform ${isExpenseBreakdownOpen ? "rotate-90" : ""}`}
+                    />
+                  </span>
+                </button>
               </CardHeader>
-              <CardContent className="space-y-3 p-4 pt-2">
-                {expenseCategoriesSummary.map((exp) => {
-                  const isOpen = expandedExpense === exp.categoryId
-                  return (
-                    <div
-                      key={exp.categoryId}
-                      className="overflow-hidden rounded-lg border border-border"
-                    >
-                      <button
-                        className="flex w-full items-center justify-between p-3 text-left transition-colors hover:bg-muted/30"
-                        onClick={() =>
-                          setExpandedExpense(isOpen ? null : exp.categoryId)
-                        }
+              {isExpenseBreakdownOpen && (
+                <CardContent className="space-y-3 p-4 pt-2">
+                  {expenseCategoriesSummary.map((exp) => {
+                    const isOpen = expandedExpense === exp.categoryId
+                    return (
+                      <div
+                        key={exp.categoryId}
+                        className="overflow-hidden rounded-lg border border-border"
                       >
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <div
-                            className="h-8 w-1 rounded-full"
-                            style={{ backgroundColor: exp.color }}
-                          />
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium">
-                              {exp.category}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                              {exp.items.length} line items
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-3">
-                          <div className="text-right">
-                            <div className="text-sm font-bold tabular-nums">
-                              {formatPeso(exp.amount)}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                              {exp.percentage}%
-                            </div>
-                          </div>
-                          <ChevronRight
-                            className={`size-4 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
-                          />
-                        </div>
-                      </button>
-                      {isOpen && (
-                        <div className="space-y-2 border-t border-border bg-muted/20 p-3">
-                          {exp.items.length === 0 ? (
-                            <div className="py-1 text-xs text-muted-foreground">
-                              No expenses recorded in this category.
-                            </div>
-                          ) : (
-                            exp.items.map((item, i) => (
-                              <div
-                                key={i}
-                                className="flex items-center justify-between text-xs"
-                              >
-                                <span className="text-muted-foreground">
-                                  {item.label}
-                                </span>
-                                <span className="font-medium tabular-nums">
-                                  {formatPeso(item.amount)}
-                                </span>
+                        <button
+                          className="flex w-full items-center justify-between p-3 text-left transition-colors hover:bg-muted/30"
+                          onClick={() =>
+                            setExpandedExpense(isOpen ? null : exp.categoryId)
+                          }
+                        >
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <div
+                              className="h-8 w-1 rounded-full"
+                              style={{ backgroundColor: exp.color }}
+                            />
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">
+                                {exp.category}
                               </div>
-                            ))
-                          )}
-                          <div className="flex items-center justify-between border-t border-border pt-2 text-xs font-semibold">
-                            <span>Subtotal</span>
-                            <span className="tabular-nums">
-                              {formatPeso(exp.amount)}
-                            </span>
+                              <div className="text-[10px] text-muted-foreground">
+                                {exp.items.length} line items
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+                          <div className="flex shrink-0 items-center gap-3">
+                            <div className="text-right">
+                              <div className="text-sm font-bold tabular-nums">
+                                {formatPeso(exp.amount)}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {exp.percentage}%
+                              </div>
+                            </div>
+                            <ChevronRight
+                              className={`size-4 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                            />
+                          </div>
+                        </button>
+                        {isOpen && (
+                          <div className="space-y-2 border-t border-border bg-muted/20 p-3">
+                            {exp.items.length === 0 ? (
+                              <div className="py-1 text-xs text-muted-foreground">
+                                No expenses recorded in this category.
+                              </div>
+                            ) : (
+                              exp.items.map((item, i) => (
+                                <div
+                                  key={i}
+                                  className="flex items-center justify-between text-xs"
+                                >
+                                  <span className="text-muted-foreground">
+                                    {item.label}
+                                  </span>
+                                  <span className="font-medium tabular-nums">
+                                    {formatPeso(item.amount)}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                            <div className="flex items-center justify-between border-t border-border pt-2 text-xs font-semibold">
+                              <span>Subtotal</span>
+                              <span className="tabular-nums">
+                                {formatPeso(exp.amount)}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
 
-                {/* Grand Total */}
-                <div className="flex items-center justify-between border-t border-border pt-3">
-                  <span className="text-sm font-bold">
-                    Grand Total Expenses
-                  </span>
-                  <span className="text-base font-bold text-rose-600 tabular-nums dark:text-rose-400">
-                    {formatPeso(totalExpenses)}
-                  </span>
-                </div>
-              </CardContent>
+                  {/* Grand Total */}
+                  <div className="flex items-center justify-between border-t border-border pt-3">
+                    <span className="text-sm font-bold">
+                      Grand Total Expenses
+                    </span>
+                    <span className="text-base font-bold text-rose-600 tabular-nums dark:text-rose-400">
+                      {formatPeso(totalExpenses)}
+                    </span>
+                  </div>
+                </CardContent>
+              )}
             </Card>
 
             {/* Cost Distribution Bar */}
             <Card className="border bg-card shadow-xs">
               <CardHeader className="p-4 pb-2">
-                <CardTitle className="text-sm font-semibold">
-                  Cost Distribution
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 p-4 pt-2">
-                {expenseCategoriesSummary.map((exp) => (
-                  <HorizontalBar
-                    key={exp.categoryId}
-                    label={exp.category}
-                    value={exp.amount}
-                    maxValue={maxCategoryExpense}
-                    color={
-                      exp.categoryId.includes("payroll")
-                        ? "bg-rose-500"
-                        : exp.categoryId.includes("inventory")
-                          ? "bg-amber-500"
-                          : exp.categoryId.includes("operations")
-                            ? "bg-sky-500"
-                            : exp.categoryId.includes("marketing")
-                              ? "bg-violet-500"
-                              : "bg-neutral-400"
-                    }
-                    amount={formatPeso(exp.amount)}
+                <button
+                  type="button"
+                  aria-expanded={isCostDistributionOpen}
+                  onClick={() => setIsCostDistributionOpen((open) => !open)}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                  <CardTitle className="text-sm font-semibold">
+                    Cost Distribution
+                  </CardTitle>
+                  <ChevronRight
+                    className={`size-4 text-muted-foreground transition-transform ${isCostDistributionOpen ? "rotate-90" : ""}`}
                   />
-                ))}
-              </CardContent>
+                </button>
+              </CardHeader>
+              {isCostDistributionOpen && (
+                <CardContent className="space-y-3 p-4 pt-2">
+                  {expenseCategoriesSummary.map((exp) => (
+                    <HorizontalBar
+                      key={exp.categoryId}
+                      label={exp.category}
+                      value={exp.amount}
+                      maxValue={maxCategoryExpense}
+                      color={
+                        exp.categoryId.includes("payroll")
+                          ? "bg-rose-500"
+                          : exp.categoryId.includes("inventory")
+                            ? "bg-amber-500"
+                            : exp.categoryId.includes("operations")
+                              ? "bg-sky-500"
+                              : exp.categoryId.includes("marketing")
+                                ? "bg-violet-500"
+                                : "bg-neutral-400"
+                      }
+                      amount={formatPeso(exp.amount)}
+                    />
+                  ))}
+                </CardContent>
+              )}
             </Card>
           </div>
         )}

@@ -16,6 +16,7 @@ import {
   CreditCard,
   LayoutGrid,
   QrCode,
+  RefreshCw,
   ShoppingBag,
   type LucideIcon,
 } from "lucide-react"
@@ -47,40 +48,7 @@ import {
 
 import type { DashboardData, LiveOrder, TopItem } from "@/types/admin/dashboard"
 
-/* ------------------------------------------------------------------ */
-/* Data (replace with your real fetch)                                 */
-/* ------------------------------------------------------------------ */
-
-async function fetchDashboard(): Promise<DashboardData> {
-  // TODO: const res = await fetch("/api/admin/dashboard"); return res.json()
-  await new Promise((r) => setTimeout(r, 800))
-  return {
-    totalOrders: 0,
-    ordersYesterday: 0,
-    revenue: 0,
-    revenueYesterday: 0,
-    occupiedTables: 0,
-    totalTables: 0,
-    reservationsToday: 0,
-    qrOrders: 0,
-    revenueTrend: [
-      { day: "Mon", revenue: 0 },
-      { day: "Tue", revenue: 0 },
-      { day: "Wed", revenue: 0 },
-      { day: "Thu", revenue: 0 },
-      { day: "Fri", revenue: 0 },
-      { day: "Sat", revenue: 0 },
-      { day: "Sun", revenue: 0 },
-    ],
-    ordersBySource: [
-      { source: "QR", orders: 0 },
-      { source: "Dine-in", orders: 0 },
-      { source: "Takeout", orders: 0 },
-    ],
-    liveOrders: [],
-    topItems: [],
-  }
-}
+import { fetchDashboardData } from "@/lib/api/dashboard"
 
 const peso = new Intl.NumberFormat("en-PH", {
   style: "currency",
@@ -343,23 +311,36 @@ function TopSelling({
 export default function AdminDashboardPage() {
   const [data, setData] = React.useState<DashboardData | null>(null)
   const [error, setError] = React.useState(false)
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
 
   const load = React.useCallback(() => {
+    setIsRefreshing(true)
     setError(false)
-    fetchDashboard()
-      .then(setData)
-      .catch(() => setError(true))
+    fetchDashboardData()
+      .then((res) => {
+        setData(res)
+        setIsRefreshing(false)
+      })
+      .catch((err) => {
+        console.error("Dashboard error:", err)
+        setError(true)
+        setIsRefreshing(false)
+      })
   }, [])
 
-  React.useEffect(load, [load])
+  React.useEffect(() => {
+    load()
+    const timer = setInterval(load, 30_000)
+    return () => clearInterval(timer)
+  }, [load])
 
   const loading = data === null && !error
 
-  if (error) {
+  if (error && !data) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
         <p className="text-sm text-muted-foreground">
-          Couldn&apos;t load the dashboard. Check your connection and try again.
+          Hindi ma-load ang dashboard data. Subukan muli.
         </p>
         <button
           onClick={load}
@@ -382,6 +363,31 @@ export default function AdminDashboardPage() {
   return (
     <div className="w-full min-w-0 overflow-x-hidden pb-16 sm:pb-8">
       <div className="space-y-4 sm:space-y-6">
+        {/* Header bar with title and refresh button */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+              Dashboard
+            </h1>
+            <p className="text-xs text-muted-foreground sm:text-sm">
+              Live operational overview of sales, tables, reservations, and orders.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={load}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs hover:bg-muted disabled:opacity-50"
+            >
+              <RefreshCw
+                className={cn("size-3.5", isRefreshing && "animate-spin")}
+              />
+              {isRefreshing ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
+        </div>
+
         {/* KPI cards: 2 cols on mobile, 5 in one row from md up */}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           <KpiCard
@@ -467,7 +473,7 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Live orders + top items */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="mt-4 grid gap-4 sm:mt-6 lg:grid-cols-3">
         <LiveOrders orders={d?.liveOrders ?? []} loading={loading} />
         <TopSelling items={d?.topItems ?? []} loading={loading} />
       </div>

@@ -11,6 +11,10 @@ class Order extends Controller
     private $menu;
     private $tables;
     private $customers;
+    private $voids;
+    private $settings;
+    private $loyalty;
+    private $loyaltySettings;
 
     public function __construct()
     {
@@ -22,13 +26,18 @@ class Order extends Controller
         $this->menu = $this->call->model('MenuModel');
         $this->tables = $this->call->model('RestaurantTableModel');
         $this->customers = $this->call->model('CustomerModel');
+        $this->voids = $this->call->model('OrderVoidModel');
+        $this->settings = $this->call->model('SystemSettingModel');
+        $this->loyalty = $this->call->model('LoyaltyTransactionModel');
+        $this->loyaltySettings = $this->call->model('LoyaltySettingModel');
     }
 
-    #[Get('/orders')]
+    #[Get('/orders', middleware: ['admin_auth'])]
     public function index()
     {
         $rows = $this->orders->query()
             ->select('id,order_number,table_id,customer_id,order_type,status,subtotal,discount,tax,total,payment_status,payment_method,payment_reference,created_by_staff_id,created_at,updated_at')
+            ->where_null('admin_hidden_at')
             ->order_by('created_at', 'DESC')
             ->get_all();
 
@@ -36,7 +45,7 @@ class Order extends Controller
         $this->success(['orders' => $orders]);
     }
 
-    #[Get('/orders/{id:uuid}')]
+    #[Get('/orders/{id:uuid}', middleware: ['admin_auth'])]
     public function show($id)
     {
         $order = $this->orders->find($id);
@@ -50,6 +59,57 @@ class Order extends Controller
     public function create()
     {
         $input = $this->api->body();
+        $requestedOrderType = $input['orderType'] ?? 'counter';
+        $orderType = in_array($requestedOrderType, ['qr', 'counter'], true) ? $requestedOrderType : 'counter';
+        $customerId = $input['customerId'] ?? null;
+        $guestIpHash = null;
+        $paymentMethod = $input['paymentMethod'] ?? null;
+        $paymentReference = isset($input['paymentReference']) ? trim((string) $input['paymentReference']) : null;
+        if ($orderType === 'qr') {
+            if ($paymentMethod !== null && !in_array($paymentMethod, ['gcash', 'maya'], true)) {
+                $this->api->respond_error('Choose GCash, Maya, or pay at the counter.', 422);
+            }
+            if ($paymentMethod !== null) {
+                if ($paymentReference === null || $paymentReference === '') {
+                    $this->api->respond_error('Enter the transaction reference from your wallet payment.', 422);
+                }
+                if (strlen($paymentReference) > 100) {
+                    $this->api->respond_error('Transaction reference must be 100 characters or fewer.', 422);
+                }
+                $settingsRows = $this->settings->query()->get_all() ?: [];
+                $qrColumn = $paymentMethod . '_qr_image';
+                if (empty($settingsRows[0][$qrColumn])) {
+                    $this->api->respond_error(strtoupper($paymentMethod) . ' payment is not set up yet. Please pay at the counter.', 422);
+                }
+            }
+            $bearerToken = $this->api->get_bearer_token();
+            $claims = $this->api->validate_jwt($bearerToken ?? '');
+            if ($bearerToken && (!$claims || ($claims['role'] ?? '') !== 'customer')) {
+                $this->api->respond_error('Customer sign-in is invalid or expired. Sign in again to place this order.', 401);
+            }
+            if ($claims && ($claims['role'] ?? '') === 'customer') {
+                $customerId = $claims['sub'];
+            } elseif ($customerId !== null) {
+                $this->api->respond_error('Sign in to place a QR order for a customer account.', 401);
+            } else {
+                $customerId = null;
+                $tableId = $input['tableId'] ?? null;
+                $ip = $this->client_ip();
+                if (!$tableId || !$ip) $this->api->respond_error('A valid table QR and client IP are required for guest orders.', 422);
+                $secret = (string) (config_item('jwt_secret') ?? 'prime-pos-guest-order-limit');
+                $guestIpHash = hash_hmac('sha256', $ip, $secret);
+                $recentGuestOrders = $this->orders->query()
+                    ->where('table_id', $tableId)
+                    ->where('guest_ip_hash', $guestIpHash)
+                    ->get_all() ?: [];
+                foreach ($recentGuestOrders as $recentOrder) {
+                    $createdAt = strtotime((string) ($recentOrder['created_at'] ?? ''));
+                    if ($createdAt && $createdAt >= time() - 900) {
+                        $this->api->respond_error('A guest order was already placed from this QR recently. Create an account to continue ordering.', 429);
+                    }
+                }
+            }
+        }
         $items = $input['items'] ?? [];
         if (!is_array($items) || !$items) {
             $this->api->respond_error('Order must contain at least one item.', 422);
@@ -75,14 +135,17 @@ class Order extends Controller
             'id' => $id,
             'order_number' => $order_number,
             'table_id' => $input['tableId'] ?? null,
-            'customer_id' => $input['customerId'] ?? null,
-            'order_type' => in_array(($input['orderType'] ?? 'counter'), ['qr', 'counter'], true) ? $input['orderType'] : 'counter',
+            'customer_id' => $customerId,
+            'guest_ip_hash' => $guestIpHash,
+            'order_type' => $orderType,
             'status' => 'pending',
             'subtotal' => number_format($subtotal, 2, '.', ''),
             'discount' => '0.00',
             'tax' => '0.00',
             'total' => number_format($subtotal, 2, '.', ''),
-            'payment_status' => 'not_required',
+            'payment_status' => $paymentMethod ? 'awaiting_verification' : 'not_required',
+            'payment_method' => $paymentMethod,
+            'payment_reference' => $paymentReference,
             'created_by_staff_id' => $input['createdByStaffId'] ?? null,
         ]);
         if ($created === false) {
@@ -94,7 +157,7 @@ class Order extends Controller
         $this->success(['orderNumber' => $order_number, 'order' => $this->format_order($this->orders->find($id))], 201);
     }
 
-    #[Put('/orders/{id:uuid}')]
+    #[Put('/orders/{id:uuid}', middleware: ['admin_auth'])]
     public function update($id)
     {
         $order = $this->orders->find($id);
@@ -140,7 +203,7 @@ class Order extends Controller
         $this->success(['order' => $this->format_order($this->orders->find($id))]);
     }
 
-    #[Post('/orders/{id:uuid}/verify-payment')]
+    #[Post('/orders/{id:uuid}/verify-payment', middleware: ['admin_auth'])]
     public function verify_payment($id)
     {
         $order = $this->orders->find($id);
@@ -152,20 +215,37 @@ class Order extends Controller
             'status' => $order['status'] === 'pending' ? 'preparing' : $order['status'],
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
-        $this->success(['order' => $this->format_order($this->orders->find($id))]);
+        $updatedOrder = $this->orders->find($id);
+        $this->loyalty->award_for_paid_order($updatedOrder, $this->customers, $this->loyaltySettings);
+        $this->success(['order' => $this->format_order($updatedOrder)]);
     }
 
-    #[Delete('/orders/{id:uuid}')]
+    #[Delete('/orders/{id:uuid}', middleware: ['admin_auth'])]
     public function delete($id)
     {
-        if (!$this->orders->find($id)) {
+        $claims = $this->api->validate_jwt($this->api->get_bearer_token() ?? '');
+        if (!$claims || ($claims['role'] ?? '') !== 'admin') {
+            $this->api->respond_error('Admin sign-in is required to hide an order.', 401);
+        }
+
+        $matches = $this->orders->query()->where('id', $id)->get_all();
+        $order = $matches[0] ?? null;
+        if (!$order) {
             $this->api->respond_error('Order not found.', 404);
         }
-        $this->orders->query()->where('id', $id)->delete();
+
+        if (($order['status'] ?? '') !== 'completed') {
+            $this->api->respond_error('Only completed orders can be removed from the admin list.', 422);
+        }
+
+        $this->orders->query()->where('id', $id)->update([
+            'admin_hidden_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
         $this->success(['id' => $id]);
     }
 
-    #[Put('/orders/{id:uuid}/status')]
+    #[Put('/orders/{id:uuid}/status', middleware: ['admin_auth'])]
     public function update_status($id)
     {
         $order = $this->orders->find($id);
@@ -178,6 +258,33 @@ class Order extends Controller
         $allowed = ['pending', 'preparing', 'ready', 'served', 'completed', 'cancelled'];
         if (!in_array($status, $allowed, true)) {
             $this->api->respond_error('Choose a valid order status.', 422);
+        }
+
+        if ($status === 'cancelled' && $order['status'] !== 'cancelled') {
+            $settingRows = $this->settings->query()->get_all() ?: [];
+            $approvalRequired = $settingRows
+                && in_array($settingRows[0]['manager_approval_for_voids'] ?? false, [true, 1, '1'], true);
+            if ($approvalRequired) {
+                $this->api->respond_error('Manager approval is required before this order can be voided.', 403);
+            }
+
+            $existingVoid = $this->voids->query()
+                ->where('order_id', $id)
+                ->where('status', 'approved')
+                ->get_all();
+            if (!$existingVoid) {
+                $staffId = $input['changedByStaffId'] ?? $order['created_by_staff_id'] ?? null;
+                $this->voids->insert([
+                    'id' => $this->uuid(),
+                    'order_id' => $id,
+                    'requested_by_staff_id' => $staffId,
+                    'approved_by_staff_id' => $staffId,
+                    'reason' => $input['cancellationReason'] ?? 'Order cancelled from order management.',
+                    'status' => 'approved',
+                    'resolved_at' => date('Y-m-d H:i:s'),
+                    'resolution_notes' => 'Cancellation recorded from order management.',
+                ]);
+            }
         }
 
         $this->orders->query()->where('id', $id)->update([
@@ -246,6 +353,20 @@ class Order extends Controller
         }
         $customer = $this->customers->find($id);
         return $customer ? $customer['name'] : 'Guest checkout';
+    }
+
+    private function client_ip()
+    {
+        $remote = $_SERVER['REMOTE_ADDR'] ?? '';
+        $trustedProxies = array_filter(array_map('trim', explode(',', (string) (getenv('TRUSTED_PROXY_IPS') ?: '127.0.0.1,::1'))));
+        if (in_array($remote, $trustedProxies, true)) {
+            $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+            if ($forwarded !== '') {
+                $candidate = trim(explode(',', $forwarded)[0]);
+                if (filter_var($candidate, FILTER_VALIDATE_IP)) return $candidate;
+            }
+        }
+        return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '';
     }
 
     private function uuid()

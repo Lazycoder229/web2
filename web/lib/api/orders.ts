@@ -117,7 +117,10 @@ export async function updateOrderStatusAction(
     `/orders/${input.orderId}/status`,
     {
       method: "PUT",
-      body: JSON.stringify({ status: input.status }),
+      body: JSON.stringify({
+        status: input.status,
+        changedByStaffId: input.changedByStaffId,
+      }),
     }
   )
   return mapData(res, (data) => ({ order: toOrder(data.order) }))

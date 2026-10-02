@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   createVoidAction,
   fetchVoids,
@@ -537,6 +538,13 @@ export default function VoidsPage() {
             </div>
           </CardHeader>
 
+          <div className="hidden grid-cols-[minmax(0,1fr)_140px_120px_40px] border-y bg-muted/30 px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase sm:grid sm:px-6">
+            <span>Order &amp; reason</span>
+            <span>Status</span>
+            <span>Amount</span>
+            <span className="text-center">Actions</span>
+          </div>
+
           <CardContent className="p-0">
             {isLoading ? (
               <div className="divide-y">
@@ -562,7 +570,7 @@ export default function VoidsPage() {
                 {paginatedVoids.map((item) => (
                   <div
                     key={item.id}
-                    className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                    className="grid gap-3 p-4 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_140px_120px_120px] sm:items-center sm:px-6"
                   >
                     <div className="flex min-w-0 items-start gap-3 sm:items-center">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
@@ -578,12 +586,6 @@ export default function VoidsPage() {
                               {item.tableNumber}
                             </Badge>
                           )}
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] ${statusClasses[item.status]}`}
-                          >
-                            {statusLabels[item.status]}
-                          </Badge>
                         </div>
                         <p className="mt-0.5 truncate text-xs font-medium text-foreground/80">
                           Reason:{" "}
@@ -608,25 +610,39 @@ export default function VoidsPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3 sm:justify-end">
-                      <div className="text-left sm:text-right">
-                        <p className="text-sm font-bold text-foreground">
-                          {formatCurrency(item.orderTotal)}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {item.items.length}{" "}
-                          {item.items.length === 1 ? "item" : "items"}
-                        </p>
-                      </div>
-
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => setSelectedVoid(item)}
-                        aria-label={`View details of void for ${item.orderNumber}`}
-                      >
-                        <Eye className="size-4" />
-                      </Button>
+                    <Badge
+                      variant="outline"
+                      className={`w-fit text-[10px] ${statusClasses[item.status]}`}
+                    >
+                      {statusLabels[item.status]}
+                    </Badge>
+                    <div className="text-left sm:text-right">
+                      <p className="text-sm font-bold text-foreground">
+                        {formatCurrency(item.orderTotal)}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {item.items.length}{" "}
+                        {item.items.length === 1 ? "item" : "items"}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      <Tooltip><TooltipTrigger asChild>
+                        <Button variant="outline" size="icon-sm" onClick={() => setSelectedVoid(item)} aria-label={`View details of void for ${item.orderNumber}`}>
+                          <Eye className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger><TooltipContent>View void request</TooltipContent></Tooltip>
+                      {item.status === "pending" && <>
+                        <Tooltip><TooltipTrigger asChild>
+                          <Button size="icon-sm" className="bg-emerald-600 text-white hover:bg-emerald-500" onClick={() => { setSelectedVoid(item); setResolutionNotes(""); setApprovalDialogOpen(true) }} aria-label={`Approve void for ${item.orderNumber}`}>
+                            <ThumbsUp className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger><TooltipContent>Approve void</TooltipContent></Tooltip>
+                        <Tooltip><TooltipTrigger asChild>
+                          <Button variant="outline" size="icon-sm" className="border-destructive/40 text-destructive hover:bg-destructive/10" onClick={() => { setSelectedVoid(item); setResolutionNotes(""); setRejectionDialogOpen(true) }} aria-label={`Reject void for ${item.orderNumber}`}>
+                            <ThumbsDown className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger><TooltipContent>Reject void</TooltipContent></Tooltip>
+                      </>}
                     </div>
                   </div>
                 ))}
@@ -681,8 +697,10 @@ export default function VoidsPage() {
       {/* VOID DETAILS SHEET                                               */}
       {/* ================================================================ */}
       <Sheet
-        open={Boolean(selectedVoid)}
-        onOpenChange={(open) => !open && setSelectedVoid(null)}
+        open={Boolean(selectedVoid) && !approvalDialogOpen && !rejectionDialogOpen}
+        onOpenChange={(open) =>
+          !open && !approvalDialogOpen && !rejectionDialogOpen && setSelectedVoid(null)
+        }
       >
         <SheetContent side="right" className="w-full p-0 sm:max-w-md">
           {selectedVoid && (
@@ -787,40 +805,10 @@ export default function VoidsPage() {
                 </div>
               </div>
 
-              <SheetFooter className="flex-col gap-2 border-t bg-background p-4 sm:p-6">
-                {selectedVoid.status === "pending" ? (
-                  <div className="grid w-full grid-cols-2 gap-2">
-                    <Button
-                      variant="outline"
-                      className="border-destructive/40 text-destructive hover:bg-destructive/10"
-                      onClick={() => {
-                        setResolutionNotes("")
-                        setRejectionDialogOpen(true)
-                      }}
-                    >
-                      <ThumbsDown className="mr-2 size-4" />
-                      Reject Void
-                    </Button>
-                    <Button
-                      className="bg-emerald-600 font-semibold text-white hover:bg-emerald-500"
-                      onClick={() => {
-                        setResolutionNotes("")
-                        setApprovalDialogOpen(true)
-                      }}
-                    >
-                      <ThumbsUp className="mr-2 size-4" />
-                      Approve Void
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => setSelectedVoid(null)}
-                  >
-                    Close
-                  </Button>
-                )}
+              <SheetFooter className="border-t bg-background p-4 sm:p-6">
+                <Button variant="outline" className="w-full" onClick={() => setSelectedVoid(null)}>
+                  Close
+                </Button>
               </SheetFooter>
             </>
           )}

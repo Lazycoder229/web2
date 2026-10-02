@@ -5,6 +5,7 @@ type ReportsResult = {
   success: boolean
   data: {
     summary: any
+    dailySales: any[]
     paymentBreakdown: any[]
     orderTypeBreakdown: any[]
     transactions: any[]
@@ -34,6 +35,7 @@ export function fetchReportsData(): Promise<ReportsResult> {
           totalTransactions: 0,
           profitMargin: 0,
         },
+        dailySales: data.dailySales ?? [],
         paymentBreakdown: data.paymentBreakdown ?? [],
         orderTypeBreakdown: data.orderTypeBreakdown ?? [],
         transactions: data.transactions ?? [],

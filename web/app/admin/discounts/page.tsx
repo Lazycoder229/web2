@@ -174,11 +174,11 @@ export default function DiscountsPage() {
         </div>
 
         {pageTab === "promos" && (
-          <PromotionsList promos={promos} loading={loading} onView={setSelectedPromo} />
+          <PromotionsList promos={promos} loading={loading} onView={setSelectedPromo} onEdit={openEditPromo} onDelete={handleDeletePromo} />
         )}
 
         {pageTab === "discounts" && (
-          <DiscountTypesList discounts={discounts} loading={loading} onView={setSelectedDiscount} />
+          <DiscountTypesList discounts={discounts} loading={loading} onView={setSelectedDiscount} onEdit={openEditDiscount} onDelete={handleDeleteDiscount} />
         )}
       </div>
 

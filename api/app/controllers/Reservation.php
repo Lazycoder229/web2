@@ -2,22 +2,43 @@
 
 defined('PREVENT_DIRECT_ACCESS') or exit('No direct script access allowed');
 
-#[Route('/api')]
+#[Route('/api', middleware: ['admin_auth'])]
 class Reservation extends Controller
 {
     private $api;
     private $reservations;
+    private $tables;
     public function __construct()
     {
         parent::__construct();
         $this->call->database();
         $this->api = $this->call->library('api');
         $this->reservations = $this->call->model('ReservationModel');
+        $this->tables = $this->call->model('RestaurantTableModel');
     }
     #[Get('/reservations')] public function index()
     {
         $rows = $this->reservations->query()->order_by('reservation_date', 'DESC')->get_all();
-        $this->success(['reservations' => array_map([$this,'format'], $rows ?: [])]);
+        $tableRows = $this->tables->query()->order_by('table_number', 'ASC')->get_all() ?: [];
+        $tableMap = [];
+        foreach ($tableRows as $table) {
+            $tableMap[$table['id']] = $table;
+        }
+        $this->success([
+            'reservations' => array_map(
+                function ($row) use ($tableMap) {
+                    return $this->format($row, $tableMap);
+                },
+                $rows ?: []
+            ),
+            'tables' => array_map(function ($table) {
+                return [
+                    'id' => (string) $table['id'],
+                    'tableNumber' => (string) $table['table_number'],
+                    'capacity' => (int) $table['capacity'],
+                ];
+            }, $tableRows),
+        ]);
     }
     #[Post('/reservations')] public function create()
     {
@@ -48,9 +69,12 @@ class Reservation extends Controller
             }
         } return $o;
     }
-    private function format($r)
+    private function format($r, $tableMap = [])
     {
-        return ['id' => (string)$r['id'],'customerId' => $r['customer_id'],'customerName' => $r['customer_name'],'contactNumber' => $r['contact_number'],'email' => $r['email'],'tableId' => $r['table_id'],'table' => null,'reservationDate' => $r['reservation_date'],'reservationTime' => $r['reservation_time'],'numberOfGuests' => (int)$r['number_of_guests'],'status' => $r['status'],'notes' => $r['notes'],'createdByStaffId' => $r['created_by_staff_id']];
+        $table = $r['table_id'] && isset($tableMap[$r['table_id']])
+            ? $tableMap[$r['table_id']]
+            : null;
+        return ['id' => (string)$r['id'],'customerId' => $r['customer_id'],'customerName' => $r['customer_name'],'contactNumber' => $r['contact_number'],'email' => $r['email'],'tableId' => $r['table_id'],'table' => $table ? 'Table ' . $table['table_number'] : null,'reservationDate' => $r['reservation_date'],'reservationTime' => $r['reservation_time'],'numberOfGuests' => (int)$r['number_of_guests'],'status' => $r['status'],'notes' => $r['notes'],'createdByStaffId' => $r['created_by_staff_id']];
     }
     private function uuid()
     {

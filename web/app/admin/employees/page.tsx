@@ -84,6 +84,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Toaster } from "@/components/ui/sonner"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -505,7 +510,7 @@ export default function EmployeesPage() {
       return
     }
     setAttendanceLogs(
-      refreshed.data.attendanceLogs.map((log) => ({
+      (refreshed.data.attendance ?? []).map((log: any) => ({
         ...log,
         employeeName: log.employeeName,
         employeeNumber: targetEmp.employeeNumber,
@@ -831,7 +836,7 @@ export default function EmployeesPage() {
                           <th className="px-3 py-2.5">RFID Card Badge</th>
                           <th className="px-3 py-2.5">Salary Rate</th>
                           <th className="px-3 py-2.5">Status</th>
-                          <th className="px-3 py-2.5 text-right">Actions</th>
+                          <th className="px-3 py-2.5 text-center">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -841,18 +846,18 @@ export default function EmployeesPage() {
                               <td className="px-3 py-3">
                                 <Skeleton className="h-4 w-16" />
                               </td>
-                              <td className="px-3 py-3 space-y-1.5">
+                              <td className="space-y-1.5 px-3 py-3">
                                 <Skeleton className="h-4 w-28" />
                                 <Skeleton className="h-3 w-20" />
                               </td>
-                              <td className="px-3 py-3 space-y-1.5">
+                              <td className="space-y-1.5 px-3 py-3">
                                 <Skeleton className="h-4 w-24" />
                                 <Skeleton className="h-3 w-14" />
                               </td>
                               <td className="px-3 py-3">
                                 <Skeleton className="h-4 w-24" />
                               </td>
-                              <td className="px-3 py-3 space-y-1.5">
+                              <td className="space-y-1.5 px-3 py-3">
                                 <Skeleton className="h-4 w-20" />
                                 <Skeleton className="h-3 w-16" />
                               </td>
@@ -943,35 +948,62 @@ export default function EmployeesPage() {
                                   {emp.employmentStatus.toUpperCase()}
                                 </Badge>
                               </td>
-                              <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                <div className="flex items-center justify-end gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleOpenViewEmployee(emp)}
-                                    className="size-7 text-muted-foreground hover:text-foreground"
-                                    title="View Employee"
-                                  >
-                                    <Eye className="size-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleOpenEditEmployee(emp)}
-                                    className="size-7 text-muted-foreground hover:text-foreground"
-                                    title="Edit Employee"
-                                  >
-                                    <Pencil className="size-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleDeleteEmployee(emp)}
-                                    className="size-7 text-destructive hover:bg-destructive/10"
-                                    title="Delete Employee"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                  </Button>
+                              <td className="px-3 py-2.5 whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={() =>
+                                          handleOpenViewEmployee(emp)
+                                        }
+                                        className="size-7"
+                                        aria-label={`View ${emp.name}`}
+                                      >
+                                        <Eye className="size-3.5" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      View employee
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={() =>
+                                          handleOpenEditEmployee(emp)
+                                        }
+                                        className="size-7"
+                                        aria-label={`Edit ${emp.name}`}
+                                      >
+                                        <Pencil className="size-3.5" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Edit employee
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={() =>
+                                          handleDeleteEmployee(emp)
+                                        }
+                                        className="size-7 text-destructive hover:bg-destructive/10"
+                                        aria-label={`Delete ${emp.name}`}
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Delete employee
+                                    </TooltipContent>
+                                  </Tooltip>
                                 </div>
                               </td>
                             </tr>
@@ -1032,7 +1064,9 @@ export default function EmployeesPage() {
                             {employees.map((emp) => (
                               <SelectItem key={emp.id} value={emp.id}>
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="font-medium">{emp.name}</span>
+                                  <span className="font-medium">
+                                    {emp.name}
+                                  </span>
                                   <span className="font-mono text-[10px] text-muted-foreground">
                                     ({emp.rfidCardUid || "No UID"})
                                   </span>
@@ -1137,11 +1171,11 @@ export default function EmployeesPage() {
                                   <td className="px-3 py-3">
                                     <Skeleton className="h-4 w-20" />
                                   </td>
-                                  <td className="px-3 py-3 space-y-1.5">
+                                  <td className="space-y-1.5 px-3 py-3">
                                     <Skeleton className="h-4 w-28" />
                                     <Skeleton className="h-3 w-16" />
                                   </td>
-                                  <td className="px-3 py-3 space-y-1.5">
+                                  <td className="space-y-1.5 px-3 py-3">
                                     <Skeleton className="h-4 w-20" />
                                     <Skeleton className="h-3 w-16" />
                                   </td>
@@ -1379,7 +1413,7 @@ export default function EmployeesPage() {
                         {isLoading ? (
                           Array.from({ length: 5 }).map((_, i) => (
                             <tr key={i} className="transition-colors">
-                              <td className="px-3 py-3 space-y-1.5">
+                              <td className="space-y-1.5 px-3 py-3">
                                 <Skeleton className="h-4 w-28" />
                                 <Skeleton className="h-3 w-16" />
                               </td>

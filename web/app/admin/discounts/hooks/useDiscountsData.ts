@@ -22,6 +22,13 @@ import type {
   PromotionForm,
 } from "../types"
 
+function normalizePromotion(promo: Promotion): Promotion {
+  return {
+    ...promo,
+    menuItemIds: Array.isArray(promo.menuItemIds) ? promo.menuItemIds : [],
+  }
+}
+
 /**
  * Owns all server data + CRUD side-effects for the Discounts & Promos page.
  * Returns plain success booleans (or the new value, for toggles) so the
@@ -42,7 +49,9 @@ export function useDiscountsData() {
 
       if (discountsRes.success) {
         setDiscounts(discountsRes.data.discountTypes as DiscountType[])
-        setPromos(discountsRes.data.promotions as Promotion[])
+        setPromos(
+          (discountsRes.data.promotions as Promotion[]).map(normalizePromotion)
+        )
       } else {
         toast.error("Failed to load data", { description: (discountsRes as any).error })
       }
@@ -88,7 +97,10 @@ export function useDiscountsData() {
           toast.error("Failed to create promotion", { description: result.error })
           return false
         }
-        setPromos((current) => [...current.filter((promo) => promo.id !== result.data.id), result.data as Promotion])
+        setPromos((current) => [
+          ...current.filter((promo) => promo.id !== result.data.id),
+          normalizePromotion(result.data as Promotion),
+        ])
         toast.success("Promotion created", { description: `${form.name} is now live.` })
       }
       await loadData()

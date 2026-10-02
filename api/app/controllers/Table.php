@@ -19,14 +19,14 @@ class Table extends Controller
         $rows = $this->tables->query()->order_by('table_number', 'ASC')->get_all();
         $this->success(['tables' => array_map([$this, 'format'], $rows ?: [])]);
     }
-    #[Post('/tables')] public function create()
+    #[Post('/tables', middleware: ['admin_auth'])] public function create()
     {
         $input = $this->api->body();
         $id = $this->uuid();
         $this->tables->insert(['id' => $id, 'table_number' => trim((string)($input['tableNumber'] ?? '')), 'capacity' => (int)($input['capacity'] ?? 1), 'status' => $input['status'] ?? 'available', 'qr_code_url' => $input['qrCodeUrl'] ?? null]);
         $this->success(['table' => $this->format($this->tables->find($id))], 201);
     }
-    #[Put('/tables/{id:uuid}')] public function update($id)
+    #[Put('/tables/{id:uuid}', middleware: ['admin_auth'])] public function update($id)
     {
         if (!$this->tables->find($id)) {
             $this->api->respond_error('Table not found.', 404);
@@ -39,7 +39,7 @@ class Table extends Controller
         } $this->tables->query()->where('id', $id)->update($changes);
         $this->success(['table' => $this->format($this->tables->find($id))]);
     }
-    #[Delete('/tables/{id:uuid}')] public function delete($id)
+    #[Delete('/tables/{id:uuid}', middleware: ['admin_auth'])] public function delete($id)
     {
         $this->tables->query()->where('id', $id)->delete();
         $this->success(['id' => $id]);
