@@ -1,116 +1,37 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
-import { Camera, ChefHat, Loader2, LogIn, QrCode, UserPlus } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { useState, useSyncExternalStore } from "react"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-
-type DetectedCode = { rawValue: string }
-type QrDetector = {
-  detect: (source: HTMLVideoElement) => Promise<DetectedCode[]>
-}
-type QrDetectorConstructor = new (options: { formats: string[] }) => QrDetector
+  ChefHat,
+  LayoutDashboard,
+  LogIn,
+  QrCode,
+  ReceiptText,
+  UserPlus,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useCustomerSession } from "./customer-session-context"
+import { QrScannerDialog } from "./qr-scanner-dialog"
 
 export function CustomerEntry() {
-  const router = useRouter()
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const { profile: sessionProfile, status } = useCustomerSession()
   const [scannerOpen, setScannerOpen] = useState(false)
-  const [scannerError, setScannerError] = useState("")
-  const [startingCamera, setStartingCamera] = useState(false)
 
-  useEffect(() => {
-    if (!scannerOpen) return
-    let stream: MediaStream | null = null
-    let intervalId = 0
-    let detecting = false
-    let active = true
+  // False during server render and the first hydration pass, true afterwards.
+  // The session provider can finish its effect before this component hydrates,
+  // so ignore its state until we are mounted to keep server and client HTML equal.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  )
+  const profile = mounted ? sessionProfile : null
 
-    async function startScanner() {
-      setStartingCamera(true)
-      setScannerError("")
-      const Detector = (
-        window as Window & { BarcodeDetector?: QrDetectorConstructor }
-      ).BarcodeDetector
-      if (!Detector) {
-        setScannerError(
-          "QR scanning is not supported in this browser. Use your phone camera to scan the table QR code."
-        )
-        setStartingCamera(false)
-        return
-      }
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setScannerError(
-          "Camera access is unavailable. Use your phone camera to scan the table QR code."
-        )
-        setStartingCamera(false)
-        return
-      }
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-          audio: false,
-        })
-        if (!active || !videoRef.current) return
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-        const detector = new Detector({ formats: ["qr_code"] })
-        intervalId = window.setInterval(async () => {
-          if (!active || detecting || !videoRef.current) return
-          detecting = true
-          try {
-            const codes = await detector.detect(videoRef.current)
-            const value = codes[0]?.rawValue
-            if (value) openScannedTable(value)
-          } catch {
-            // The camera may not have a decoded frame yet; keep scanning.
-          } finally {
-            detecting = false
-          }
-        }, 300)
-      } catch {
-        setScannerError(
-          "Could not open the camera. Allow camera access and try again."
-        )
-      } finally {
-        if (active) setStartingCamera(false)
-      }
-    }
-
-    function openScannedTable(value: string) {
-      try {
-        const url = new URL(value, window.location.origin)
-        const tableId =
-          url.searchParams.get("tableId") ??
-          url.pathname.match(/^\/t\/([^/]+)/)?.[1]
-        if (!tableId) {
-          setScannerError(
-            "That QR code is not a PRIME POS table code. Scan the QR code on your table."
-          )
-          return
-        }
-        active = false
-        router.push(`/customer?tableId=${encodeURIComponent(tableId)}`)
-        setScannerOpen(false)
-      } catch {
-        setScannerError("Could not read that QR code. Try scanning it again.")
-      }
-    }
-
-    void startScanner()
-    return () => {
-      active = false
-      if (intervalId) window.clearInterval(intervalId)
-      stream?.getTracks().forEach((track) => track.stop())
-    }
-  }, [router, scannerOpen])
+  // Wait for the saved session before choosing a view, so a remembered
+  // customer never sees the sign-in buttons flash by.
+  const checking = !mounted || (status === null && !profile)
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col justify-center">
@@ -122,85 +43,87 @@ export function CustomerEntry() {
           <p className="mt-4 text-xs font-semibold tracking-[.16em] text-amber-600 uppercase">
             PRIME POS · CUSTOMER
           </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-            Welcome
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Scan your table QR to order, or sign in to access your customer
-            account.
-          </p>
-        </div>
-
-        <div className="mt-7 grid gap-3">
-          <Button
-            type="button"
-            onClick={() => setScannerOpen(true)}
-            className="h-12 bg-amber-500 text-base font-semibold text-amber-950 hover:bg-amber-400"
-          >
-            <QrCode className="mr-2 size-5" />
-            Scan table QR
-          </Button>
-          <Button asChild variant="outline" className="h-12 text-base">
-            <Link href="/customer/login">
-              <LogIn className="mr-2 size-5" />
-              Login
-            </Link>
-          </Button>
-          <Button asChild variant="outline" className="h-12 text-base">
-            <Link href="/customer/register">
-              <UserPlus className="mr-2 size-5" />
-              Create account
-            </Link>
-          </Button>
-        </div>
-
-        <p className="mt-5 text-center text-xs leading-5 text-muted-foreground">
-          You can place a QR order as a guest. Create an account to keep your
-          orders, reservations, and loyalty points together.
-        </p>
-      </section>
-
-      <Dialog open={scannerOpen} onOpenChange={setScannerOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Camera className="size-5 text-amber-600" />
-              Scan table QR
-            </DialogTitle>
-            <DialogDescription>
-              Allow camera access and hold the table QR code inside the frame.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-black">
-            <video
-              ref={videoRef}
-              muted
-              playsInline
-              className="size-full object-cover"
-            />
-            <div className="pointer-events-none absolute inset-[14%] rounded-2xl border-2 border-amber-400 shadow-[0_0_0_999px_rgba(0,0,0,.22)]" />
-            {startingCamera && (
-              <div className="absolute inset-0 grid place-items-center bg-black/60 text-sm text-white">
-                <Loader2 className="mr-2 inline size-4 animate-spin" />
-                Starting camera…
-              </div>
-            )}
-          </div>
-          {scannerError && (
-            <p
-              role="alert"
-              className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-            >
-              {scannerError}
-            </p>
+          {profile ? (
+            <>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+                Welcome back, {profile.name.split(" ")[0]}
+              </h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Scan the QR code on your table to start your order.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+                Welcome
+              </h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Sign in to scan your table QR and order, or create an account
+                to get started.
+              </p>
+            </>
           )}
-          <div className="flex justify-end">
-            <Button variant="outline" onClick={() => setScannerOpen(false)}>
-              Close scanner
+        </div>
+
+        {checking ? (
+          <div className="mt-7 grid gap-3">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : profile ? (
+          <div className="mt-7 grid gap-3">
+            <Button
+              type="button"
+              onClick={() => setScannerOpen(true)}
+              className="h-12 bg-amber-500 text-base font-semibold text-amber-950 hover:bg-amber-400"
+            >
+              <QrCode className="mr-2 size-5" />
+              Scan table QR
+            </Button>
+            <div className="grid grid-cols-2 gap-3">
+              <Button asChild variant="outline" className="h-12">
+                <Link href="/customer/dashboard">
+                  <LayoutDashboard className="mr-2 size-4" />
+                  Dashboard
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="h-12">
+                <Link href="/customer/orders">
+                  <ReceiptText className="mr-2 size-4" />
+                  My orders
+                </Link>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-7 grid gap-3">
+            <Button
+              asChild
+              className="h-12 bg-amber-500 text-base font-semibold text-amber-950 hover:bg-amber-400"
+            >
+              <Link href="/customer/login">
+                <LogIn className="mr-2 size-5" />
+                Login
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="h-12 text-base">
+              <Link href="/customer/register">
+                <UserPlus className="mr-2 size-5" />
+                Create account
+              </Link>
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+
+        {!profile && !checking && (
+          <p className="mt-5 text-center text-xs leading-5 text-muted-foreground">
+            An account keeps your orders, reservations, and loyalty points
+            together.
+          </p>
+        )}
+      </section>
+
+      <QrScannerDialog open={scannerOpen} onOpenChange={setScannerOpen} />
     </div>
   )
 }

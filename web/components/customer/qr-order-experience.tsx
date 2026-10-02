@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/sheet"
 import { Toaster } from "@/components/ui/sonner"
 import { getMenuDataAction } from "@/lib/api/menu"
-import { fetchTables } from "@/lib/api/tables"
+import { fetchTables, occupyTableAction } from "@/lib/api/tables"
 import { getCustomerAccessToken } from "@/lib/api/client"
 import { createCustomerQrOrder } from "@/lib/api/customer"
 import { fetchSystemSettings } from "@/lib/api/settings"
@@ -63,6 +63,7 @@ export function QrOrderExperience({
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
   const [tables, setTables] = useState<TableOption[]>([])
+  const [allTables, setAllTables] = useState<TableOption[]>([])
   const [cart, setCart] = useState<CartLine[]>([])
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
@@ -102,6 +103,7 @@ export function QrOrderExperience({
             ? tableResult.data
             : null
         if (tableRows) {
+          setAllTables(tableRows)
           const availableTables = tableRows.filter(
             (table: TableOption) => table.status !== "reserved"
           )
@@ -139,6 +141,15 @@ export function QrOrderExperience({
     if (initialTableId) setSelectedTable(initialTableId)
   }, [initialTableId])
 
+  // Scanning a table QR marks that table occupied right away, so staff see it
+  // in the admin before the customer has ordered or paid. Only signed-in
+  // customers can order, so only they hold a table.
+  useEffect(() => {
+    if (initialTableId && getCustomerAccessToken()) {
+      void occupyTableAction(initialTableId)
+    }
+  }, [initialTableId])
+
   useEffect(() => {
     if (
       !allowSavedTableContext ||
@@ -165,7 +176,26 @@ export function QrOrderExperience({
     (sum, line) => sum + line.item.price * line.quantity,
     0
   )
-  const table = tables.find((row) => row.id === selectedTable)
+  const table = allTables.find((row) => row.id === selectedTable)
+  // A scanned QR locks the table, but only when that table really exists.
+  // If the QR points to an unknown table, let the customer pick one instead
+  // of leaving them stuck on a locked, empty choice.
+  const tableLocked =
+    Boolean(initialTableId) &&
+    (loading ||
+      allTables.length === 0 ||
+      allTables.some((row) => row.id === initialTableId))
+
+  useEffect(() => {
+    if (
+      initialTableId &&
+      !loading &&
+      allTables.length > 0 &&
+      !allTables.some((row) => row.id === initialTableId)
+    ) {
+      setSelectedTable((current) => (current === initialTableId ? "" : current))
+    }
+  }, [initialTableId, loading, allTables])
 
   function addItem(item: MenuItem) {
     setCart((current) => {
@@ -301,9 +331,9 @@ export function QrOrderExperience({
             <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2 font-semibold">
                 <QrCode className="size-4 text-amber-600" />
-                {table ? `Table ${table.tableNumber}` : "Choose your table"}
+                {table ? table.tableNumber : "Choose your table"}
               </div>
-              {initialTableId ? (
+              {tableLocked ? (
                 <Badge variant="outline">QR table locked</Badge>
               ) : (
                 <select
@@ -314,14 +344,14 @@ export function QrOrderExperience({
                   <option value="">Select a table</option>
                   {tables.map((row) => (
                     <option key={row.id} value={row.id}>
-                      Table {row.tableNumber} · {row.capacity} seats
+                      {row.tableNumber} · {row.capacity} seats
                     </option>
                   ))}
                 </select>
               )}
             </CardContent>
           </Card>
-          {tablesError && !initialTableId && (
+          {tablesError && !tableLocked && (
             <p
               role="status"
               className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-800 dark:text-amber-300"
@@ -714,7 +744,7 @@ function CartContents({
             : "Continue to payment"}
       </Button>
       <p className="mt-2 text-center text-xs text-muted-foreground">
-        Guest orders are limited per table and IP.
+        Staff will verify wallet payments before your order is marked as paid.
       </p>
     </CardContent>
   )
@@ -722,8 +752,8 @@ function CartContents({
 
 function tableIdLabel(id: string, table?: TableOption) {
   return table
-    ? `Table ${table.tableNumber}`
+    ? table.tableNumber
     : id
       ? "Table QR order"
-      : "Guest ordering"
+      : "Choose your table"
 }

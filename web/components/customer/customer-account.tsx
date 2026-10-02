@@ -31,6 +31,7 @@ import {
   type ActiveSessionLock,
 } from "@/lib/api/session-lock"
 import { useCustomerSession } from "./customer-session-context"
+import { safeCustomerNextPath } from "@/lib/customer-next"
 
 export function CustomerAccount({
   initialMode = "login",
@@ -51,6 +52,7 @@ export function CustomerAccount({
   const [error, setError] = useState("")
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [remember, setRemember] = useState(true)
   const [activeSession, setActiveSession] = useState<ActiveSessionLock | null>(null)
 
   useEffect(() => {
@@ -86,12 +88,14 @@ export function CustomerAccount({
         ? await loginCustomer({
             email,
             password: String(values.password ?? ""),
+            remember,
           })
         : await registerCustomer({
             name: String(values.name ?? ""),
             email: String(values.email ?? ""),
             password: String(values.password ?? ""),
             contactNumber: String(values.contactNumber ?? ""),
+            remember,
           })
     setBusy(false)
     if (!result.success || !result.data) {
@@ -100,7 +104,11 @@ export function CustomerAccount({
     }
     setProfile(result.data.customer)
     if (mode === "register") toast.success("Account created.")
-    router.replace("/customer/dashboard")
+    // Go back to the page (e.g. a scanned table) the customer came from.
+    const next = safeCustomerNextPath(
+      new URLSearchParams(window.location.search).get("next")
+    )
+    router.replace(next ?? "/customer/dashboard")
     router.refresh()
   }
 
@@ -382,6 +390,19 @@ export function CustomerAccount({
                   </button>
                 </div>
               </div>
+              <label
+                htmlFor="customer-remember"
+                className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"
+              >
+                <input
+                  id="customer-remember"
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                  className="size-4 rounded border-stone-300 accent-amber-500"
+                />
+                Remember me on this device
+              </label>
               {error && (
                 <p
                   className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
@@ -398,9 +419,6 @@ export function CustomerAccount({
                 {mode === "login" ? "Sign in" : "Create account"}
               </Button>
             </form>
-            <p className="mt-4 text-center text-xs text-muted-foreground">
-                  Guest QR ordering does not require an account.
-                </p>
                 {mode === "login" && !activeSession && (
                   <p className="mt-2 text-center text-sm">
                     <button

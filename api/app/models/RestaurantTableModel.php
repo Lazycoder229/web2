@@ -5,7 +5,7 @@ class RestaurantTableModel extends Model
 {
     protected $table = 'restaurant_tables';
     protected $primary_key = 'id';
-    protected $fillable = ['id', 'table_number', 'capacity', 'qr_code_url', 'status', 'created_at'];
+    protected $fillable = ['id', 'table_number', 'capacity', 'qr_code_url', 'status', 'occupied_at', 'created_at'];
     protected $guarded = [];
     protected $timestamps = false;
 }

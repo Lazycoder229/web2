@@ -3,8 +3,10 @@ import {
   invalidateApiCache,
   getCustomerAccessToken,
   getCustomerRefreshToken,
+  isCustomerSessionOnly,
   setCustomerAccessToken,
   setCustomerRefreshToken,
+  setCustomerRemember,
 } from "./client"
 import {
   canStartSession,
@@ -35,7 +37,9 @@ export async function registerCustomer(input: {
   email: string
   password: string
   contactNumber?: string
+  remember?: boolean
 }) {
+  const { remember = true, ...fields } = input
   const email = input.email.trim()
   const check = canStartSession({ type: "customer", email })
   if (!check.allowed) {
@@ -47,7 +51,7 @@ export async function registerCustomer(input: {
 
   const result = await api<CustomerAuthResponse>("/customers/register", {
     method: "POST",
-    body: JSON.stringify({ ...input, email }),
+    body: JSON.stringify({ ...fields, email }),
     skipAuthRedirect: true,
     customerAuth: true,
   })
@@ -60,6 +64,7 @@ export async function registerCustomer(input: {
         // storage fallback
       }
     }
+    setCustomerRemember(remember)
     setCustomerAccessToken(result.data.accessToken)
     setCustomerRefreshToken(result.data.refreshToken)
     saveCustomerProfile(result.data.customer)
@@ -70,7 +75,9 @@ export async function registerCustomer(input: {
 export async function loginCustomer(input: {
   email: string
   password: string
+  remember?: boolean
 }) {
+  const { remember = true, ...fields } = input
   const email = input.email.trim()
   const check = canStartSession({ type: "customer", email })
   if (!check.allowed) {
@@ -82,7 +89,7 @@ export async function loginCustomer(input: {
 
   const result = await api<CustomerAuthResponse>("/customers/login", {
     method: "POST",
-    body: JSON.stringify({ ...input, email }),
+    body: JSON.stringify({ ...fields, email }),
     skipAuthRedirect: true,
     customerAuth: true,
   })
@@ -95,6 +102,7 @@ export async function loginCustomer(input: {
         // storage fallback
       }
     }
+    setCustomerRemember(remember)
     setCustomerAccessToken(result.data.accessToken)
     setCustomerRefreshToken(result.data.refreshToken)
     saveCustomerProfile(result.data.customer)
@@ -105,8 +113,12 @@ export async function loginCustomer(input: {
 export function saveCustomerProfile(profile: CustomerProfile) {
   if (typeof window === "undefined") return
   try {
-    window.localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(profile))
-    window.sessionStorage.removeItem(CUSTOMER_PROFILE_KEY)
+    // Session-only logins (no "Remember me") keep the profile in this tab only.
+    const [keep, drop] = isCustomerSessionOnly()
+      ? [window.sessionStorage, window.localStorage]
+      : [window.localStorage, window.sessionStorage]
+    keep.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(profile))
+    drop.removeItem(CUSTOMER_PROFILE_KEY)
   } catch {
     // Keep the active login working when browser storage is unavailable.
   }

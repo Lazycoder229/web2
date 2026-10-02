@@ -25,6 +25,8 @@ type CustomerSessionValue = {
   profile: CustomerProfile | null
   status: number | null
   loading: boolean
+  /** True after the customer chose to sign out in this tab. */
+  signedOut: boolean
   refresh: () => Promise<void>
   setProfile: (profile: CustomerProfile) => void
   signOut: () => void
@@ -36,6 +38,7 @@ export function CustomerSessionProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<CustomerProfile | null>(null)
   const [status, setStatus] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
+  const [signedOut, setSignedOut] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -43,6 +46,7 @@ export function CustomerSessionProvider({ children }: { children: ReactNode }) {
     if (result.success && result.data) {
       setProfile(result.data)
       setStatus(200)
+      setSignedOut(false)
     } else {
       setProfile(null)
       setStatus(401)
@@ -54,6 +58,7 @@ export function CustomerSessionProvider({ children }: { children: ReactNode }) {
     setProfile(customer)
     setStatus(200)
     setLoading(false)
+    setSignedOut(false)
   }, [])
 
   const signOut = useCallback(() => {
@@ -61,6 +66,7 @@ export function CustomerSessionProvider({ children }: { children: ReactNode }) {
     setProfile(null)
     setStatus(401)
     setLoading(false)
+    setSignedOut(true)
   }, [])
 
   useEffect(() => {
@@ -91,6 +97,7 @@ export function CustomerSessionProvider({ children }: { children: ReactNode }) {
         setProfile(saved)
         setStatus(200)
         setLoading(false)
+        setSignedOut(false)
         return
       }
 
@@ -112,11 +119,12 @@ export function CustomerSessionProvider({ children }: { children: ReactNode }) {
       profile,
       status,
       loading,
+      signedOut,
       refresh,
       setProfile: setSignedInProfile,
       signOut,
     }),
-    [profile, status, loading, refresh, setSignedInProfile, signOut]
+    [profile, status, loading, signedOut, refresh, setSignedInProfile, signOut]
   )
 
   return (

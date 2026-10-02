@@ -10,6 +10,9 @@ const CUSTOMER_TOKEN_KEY = "prime-pos:customer-access-token"
 const CUSTOMER_REFRESH_TOKEN_KEY = "prime-pos:customer-refresh-token"
 const ADMIN_TOKEN_KEY = "prime-pos:admin-access-token"
 const ADMIN_REFRESH_TOKEN_KEY = "prime-pos:admin-refresh-token"
+// Set (per tab) when a customer signs in without "Remember me": their tokens
+// then live in sessionStorage and disappear when the browser is closed.
+const CUSTOMER_SESSION_ONLY_KEY = "prime-pos:customer-session-only"
 
 type CachedResult = {
   result: ActionResult<unknown>
@@ -83,6 +86,8 @@ function clearStoredCache() {
 function cacheLifetime(path: string): number {
   // Keep each signed-in customer's account data warm across page visits.
   if (/^\/customers\/me\//.test(path)) return 2 * 60_000
+  // Table status changes as customers scan and staff seat guests.
+  if (/^\/tables(\/|\?|$)/.test(path)) return 3_000
   // Frequently changing operational data stays fresh for a shorter period.
   if (/\/(orders|reservations|inventory)(\/|\?|$)/.test(path)) return 10_000
   if (/^\/reports(\/|\?|$)/.test(path)) return 30_000
@@ -245,18 +250,48 @@ function getStoredToken(key: string) {
   }
 }
 
-function setStoredToken(key: string, token: string | null) {
+function setStoredToken(
+  key: string,
+  token: string | null,
+  sessionOnly = false
+) {
   if (typeof window === "undefined") return
   try {
     if (token) {
-      window.localStorage.setItem(key, token)
-      window.sessionStorage.removeItem(key)
+      if (sessionOnly) {
+        window.sessionStorage.setItem(key, token)
+        window.localStorage.removeItem(key)
+      } else {
+        window.localStorage.setItem(key, token)
+        window.sessionStorage.removeItem(key)
+      }
     } else {
       window.localStorage.removeItem(key)
       window.sessionStorage.removeItem(key)
     }
   } catch {
     // Keep the active session working when browser storage is unavailable.
+  }
+}
+
+/** True when the customer chose not to be remembered on this device. */
+export function isCustomerSessionOnly() {
+  if (typeof window === "undefined") return false
+  try {
+    return window.sessionStorage.getItem(CUSTOMER_SESSION_ONLY_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+/** Call before storing a new customer login. `remember` keeps them signed in. */
+export function setCustomerRemember(remember: boolean) {
+  if (typeof window === "undefined") return
+  try {
+    if (remember) window.sessionStorage.removeItem(CUSTOMER_SESSION_ONLY_KEY)
+    else window.sessionStorage.setItem(CUSTOMER_SESSION_ONLY_KEY, "1")
+  } catch {
+    // Falls back to remembering the login.
   }
 }
 
@@ -275,7 +310,7 @@ export function getAdminRefreshToken() {
 }
 
 export function setCustomerRefreshToken(token: string | null) {
-  setStoredToken(CUSTOMER_REFRESH_TOKEN_KEY, token)
+  setStoredToken(CUSTOMER_REFRESH_TOKEN_KEY, token, isCustomerSessionOnly())
 }
 
 export function getCustomerRefreshToken() {
@@ -326,8 +361,13 @@ export function setCustomerAccessToken(token: string | null) {
   if (typeof window === "undefined") return
   try {
     if (token) {
-      window.localStorage.setItem(CUSTOMER_TOKEN_KEY, token)
-      window.sessionStorage.removeItem(CUSTOMER_TOKEN_KEY)
+      if (isCustomerSessionOnly()) {
+        window.sessionStorage.setItem(CUSTOMER_TOKEN_KEY, token)
+        window.localStorage.removeItem(CUSTOMER_TOKEN_KEY)
+      } else {
+        window.localStorage.setItem(CUSTOMER_TOKEN_KEY, token)
+        window.sessionStorage.removeItem(CUSTOMER_TOKEN_KEY)
+      }
       // When setting customer token, ensure admin session in this browser is wiped
       window.localStorage.removeItem(ADMIN_TOKEN_KEY)
       window.localStorage.removeItem(ADMIN_REFRESH_TOKEN_KEY)
@@ -342,6 +382,7 @@ export function setCustomerAccessToken(token: string | null) {
       window.sessionStorage.removeItem(CUSTOMER_TOKEN_KEY)
       window.sessionStorage.removeItem(CUSTOMER_REFRESH_TOKEN_KEY)
       window.sessionStorage.removeItem("prime-pos-customer-profile")
+      window.sessionStorage.removeItem(CUSTOMER_SESSION_ONLY_KEY)
     }
   } catch {
     // Keep the token in memory for this page if storage is unavailable.
@@ -424,16 +465,27 @@ export async function api<T>(
       }
 
       if (res.status === 401 && !skipAuthRedirect) {
+        // The customer is already signed out (no token was sent), so there is
+        // no session to expire. Don't wipe state or navigate; the layout guard
+        // already moves signed-out customers to the login page.
+        if (customerAuth && !initialToken) {
+          return {
+            success: false,
+            error: "Please sign in to continue.",
+          }
+        }
         invalidateApiCache()
         if (customerAuth) setCustomerAccessToken(null)
         else if (initialToken) setAdminAccessToken(null)
         clearActiveSessionLock()
-        const loginPath = customerAuth ? "/customer/login" : LOGIN_PATH
+        // Customers are sent to the login page by the customer layout (it
+        // listens for this session change), so there is no full page reload.
         if (
+          !customerAuth &&
           typeof window !== "undefined" &&
-          window.location.pathname !== loginPath
+          window.location.pathname !== LOGIN_PATH
         ) {
-          window.location.href = loginPath
+          window.location.href = LOGIN_PATH
         }
         return {
           success: false,

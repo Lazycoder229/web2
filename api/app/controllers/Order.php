@@ -84,31 +84,11 @@ class Order extends Controller
             }
             $bearerToken = $this->api->get_bearer_token();
             $claims = $this->api->validate_jwt($bearerToken ?? '');
-            if ($bearerToken && (!$claims || ($claims['role'] ?? '') !== 'customer')) {
-                $this->api->respond_error('Customer sign-in is invalid or expired. Sign in again to place this order.', 401);
+            // QR orders need a customer account; guest ordering is no longer supported.
+            if (!$bearerToken || !$claims || ($claims['role'] ?? '') !== 'customer') {
+                $this->api->respond_error('Sign in to your customer account to place a QR order.', 401);
             }
-            if ($claims && ($claims['role'] ?? '') === 'customer') {
-                $customerId = $claims['sub'];
-            } elseif ($customerId !== null) {
-                $this->api->respond_error('Sign in to place a QR order for a customer account.', 401);
-            } else {
-                $customerId = null;
-                $tableId = $input['tableId'] ?? null;
-                $ip = $this->client_ip();
-                if (!$tableId || !$ip) $this->api->respond_error('A valid table QR and client IP are required for guest orders.', 422);
-                $secret = (string) (config_item('jwt_secret') ?? 'prime-pos-guest-order-limit');
-                $guestIpHash = hash_hmac('sha256', $ip, $secret);
-                $recentGuestOrders = $this->orders->query()
-                    ->where('table_id', $tableId)
-                    ->where('guest_ip_hash', $guestIpHash)
-                    ->get_all() ?: [];
-                foreach ($recentGuestOrders as $recentOrder) {
-                    $createdAt = strtotime((string) ($recentOrder['created_at'] ?? ''));
-                    if ($createdAt && $createdAt >= time() - 900) {
-                        $this->api->respond_error('A guest order was already placed from this QR recently. Create an account to continue ordering.', 429);
-                    }
-                }
-            }
+            $customerId = $claims['sub'];
         }
         $items = $input['items'] ?? [];
         if (!is_array($items) || !$items) {
@@ -154,7 +134,10 @@ class Order extends Controller
         foreach ($normalized as $item) {
             $this->items->insert(array_merge(['id' => $this->uuid(), 'order_id' => $id], $item));
         }
-        $this->success(['orderNumber' => $order_number, 'order' => $this->format_order($this->orders->find($id))], 201);
+        // Same for QR and cashier orders: the table is taken as soon as an order is placed.
+        $this->occupy_table($input['tableId'] ?? null);
+        $response = ['orderNumber' => $order_number, 'order' => $this->format_order($this->orders->find($id))];
+        $this->success($response, 201);
     }
 
     #[Put('/orders/{id:uuid}', middleware: ['admin_auth'])]
@@ -171,6 +154,7 @@ class Order extends Controller
                 $this->api->respond_error('Choose a valid order status.', 422);
             }
             $this->orders->query()->where('id', $id)->update(['status' => $input['status'], 'updated_at' => date('Y-m-d H:i:s')]);
+            $this->release_table_if_idle($order['table_id'] ?? null);
         }
         if (isset($input['items']) && is_array($input['items']) && $input['items']) {
             $this->items->query()->where('order_id', $id)->delete();
@@ -291,6 +275,7 @@ class Order extends Controller
             'status' => $status,
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+        $this->release_table_if_idle($order['table_id'] ?? null);
 
         $this->success(['order' => $this->format_order($this->orders->find($id))]);
     }
@@ -353,6 +338,35 @@ class Order extends Controller
         }
         $customer = $this->customers->find($id);
         return $customer ? $customer['name'] : 'Guest checkout';
+    }
+
+    private function occupy_table($tableId)
+    {
+        if (!$tableId) {
+            return;
+        }
+        $table = $this->tables->find($tableId);
+        if ($table && ($table['status'] ?? '') === 'available') {
+            $this->tables->query()->where('id', $tableId)->update(['status' => 'occupied', 'occupied_at' => date('Y-m-d H:i:s')]);
+        }
+    }
+
+    private function release_table_if_idle($tableId)
+    {
+        if (!$tableId) {
+            return;
+        }
+        $table = $this->tables->find($tableId);
+        if (!$table || ($table['status'] ?? '') !== 'occupied') {
+            return;
+        }
+        $orders = $this->orders->query()->where('table_id', $tableId)->get_all() ?: [];
+        foreach ($orders as $other) {
+            if (!in_array($other['status'] ?? '', ['completed', 'cancelled'], true)) {
+                return;
+            }
+        }
+        $this->tables->query()->where('id', $tableId)->update(['status' => 'available', 'occupied_at' => null]);
     }
 
     private function client_ip()

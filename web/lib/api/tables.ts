@@ -21,3 +21,11 @@ export function updateTableAction(input: AnyInput): Promise<any> {
 export function deleteTableAction(id: string): Promise<any> {
   return api<any>(`/tables/${id}`, { method: "DELETE" })
 }
+/** Marks a table occupied when a customer scans its QR code. */
+export function occupyTableAction(id: string): Promise<any> {
+  return api<any>(`/tables/${id}/occupy`, {
+    method: "POST",
+    customerAuth: true,
+    skipAuthRedirect: true,
+  })
+}

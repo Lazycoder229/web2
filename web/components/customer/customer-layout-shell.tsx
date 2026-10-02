@@ -8,6 +8,7 @@ import {
   ChefHat,
   Gift,
   LayoutDashboard,
+  Loader2,
   LogIn,
   LogOut,
   QrCode,
@@ -32,6 +33,10 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
+import { QrScannerDialog } from "./qr-scanner-dialog"
+import { InstallPrompt } from "./install-prompt"
+import { safeCustomerNextPath } from "@/lib/customer-next"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,7 +59,7 @@ const links = [
     icon: LayoutDashboard,
     authRequired: true,
   },
-  { href: "/customer/menu", label: "Order via QR", icon: QrCode },
+  { href: "/customer/menu", label: "Order via QR", icon: QrCode, authRequired: true },
   { href: "/customer/orders", label: "Orders", icon: ReceiptText, authRequired: true },
   {
     href: "/customer/reservations",
@@ -68,8 +73,9 @@ const links = [
 
 /**
  * Pages that require a signed-in customer. A logged-out visitor is sent to
- * the login page. Everything else under /customer (menu, guest, reservations,
- * auth pages) stays open to guests.
+ * the login page. Everything else under /customer (reservations, auth pages)
+ * stays open. Ordering needs an account, so the menu and a scanned table
+ * (/customer?tableId=...) also send visitors to sign in first.
  *
  * Note: the old check treated "/customer" as a prefix, which made every
  * /customer/* page public, so signing out on a protected page left the UI
@@ -80,6 +86,7 @@ const PROTECTED_PAGES = [
   "/customer/account",
   "/customer/orders",
   "/customer/loyalty",
+  "/customer/menu",
   "/customer/receipt",
 ]
 
@@ -106,7 +113,7 @@ function CustomerSidebar() {
     closeMobileSidebar()
     signOut()
     // A signed-in customer who logs out goes back to the login page from any
-    // page. Only visitors who never signed in stay on the guest pages.
+    // page.
     router.replace("/customer/login")
   }
 
@@ -124,7 +131,7 @@ function CustomerSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b p-4 group-data-[collapsible=icon]:p-2">
         <Link
-          href={isAuthed ? "/customer/dashboard" : "/customer/menu"}
+          href={isAuthed ? "/customer/dashboard" : "/customer"}
           onClick={closeMobileSidebar}
           title="PRIME POS"
           className="flex items-center gap-3 font-bold tracking-tight group-data-[collapsible=icon]:justify-center"
@@ -199,7 +206,7 @@ function CustomerSidebar() {
               <AlertDialogTitle>Sign out?</AlertDialogTitle>
               <AlertDialogDescription>
                 You will need to sign in again to see your orders, reservations,
-                and rewards. You can still order as a guest.
+                and rewards.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -224,8 +231,9 @@ function CustomerLayoutContent({
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { profile, status, loading } = useCustomerSession()
+  const { profile, status, loading, signedOut } = useCustomerSession()
   const [mounted, setMounted] = useState(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -244,35 +252,73 @@ function CustomerLayoutContent({
   const shouldRedirectToLogin =
     mounted && isProtectedPage && !loading && status === 401 && !profile
 
-  // ── Redirect logged-in customer from /customer (no tableId) to dashboard ──
-  const shouldRedirectToDashboard =
-    mounted && isCustomerHome && !hasTableId && !loading && status !== null && !!profile
+  // ── A scanned table QR needs an account: sign in first, then come back ──
+  const shouldRedirectTableToLogin =
+    mounted &&
+    isCustomerHome &&
+    hasTableId &&
+    !loading &&
+    status === 401 &&
+    !profile
+  const query = searchParams.toString()
+  const currentPath = pathname + (query ? `?${query}` : "")
+  // After an intentional sign-out, go to a clean login page (no ?next=).
+  const loginHref = signedOut
+    ? "/customer/login"
+    : `/customer/login?next=${encodeURIComponent(currentPath)}`
+  const afterLoginPath =
+    safeCustomerNextPath(searchParams.get("next")) ?? "/customer/dashboard"
 
   // ── Redirect logged-in customer away from login/register pages ──
   const shouldRedirectFromAuth =
     mounted && isStandaloneAuthPage && !loading && status !== null && !!profile
 
   useEffect(() => {
-    if (shouldRedirectToLogin) {
-      router.replace("/customer/login")
+    if (shouldRedirectToLogin || shouldRedirectTableToLogin) {
+      router.replace(loginHref)
     }
-  }, [router, shouldRedirectToLogin])
-
-  useEffect(() => {
-    if (shouldRedirectToDashboard) {
-      router.replace("/customer/dashboard")
-    }
-  }, [router, shouldRedirectToDashboard])
+  }, [router, shouldRedirectToLogin, shouldRedirectTableToLogin, loginHref])
 
   useEffect(() => {
     if (shouldRedirectFromAuth) {
-      router.replace("/customer/dashboard")
+      router.replace(afterLoginPath)
     }
-  }, [router, shouldRedirectFromAuth])
+  }, [router, shouldRedirectFromAuth, afterLoginPath])
 
-  // Show nothing while redirect is pending (only after mounted on client)
-  if (mounted && (shouldRedirectToLogin || shouldRedirectToDashboard || shouldRedirectFromAuth)) {
-    return null
+  const isRedirecting =
+    mounted &&
+    (shouldRedirectToLogin ||
+      shouldRedirectTableToLogin ||
+      shouldRedirectFromAuth)
+
+  // The sidebar (with its open "Sign out?" dialog) is unmounted while we
+  // redirect. Radix can leave `pointer-events: none` and a scroll lock on the
+  // body in that case, which makes the next page look dimmed and unclickable.
+  useEffect(() => {
+    function releaseBody() {
+      if (document.body.style.pointerEvents === "none") {
+        document.body.style.pointerEvents = ""
+      }
+      document.body.removeAttribute("data-scroll-locked")
+      document.body.style.overflow = ""
+    }
+    if (!isRedirecting && !signedOut) return
+    releaseBody()
+    const timer = window.setTimeout(releaseBody, 400)
+    return () => window.clearTimeout(timer)
+  }, [isRedirecting, signedOut, pathname])
+
+  // Show a spinner (never a blank screen) while the redirect is pending.
+  if (isRedirecting) {
+    return (
+      <div
+        role="status"
+        aria-label="Redirecting"
+        className="grid min-h-dvh place-items-center bg-muted/20"
+      >
+        <Loader2 className="size-6 animate-spin text-amber-600" />
+      </div>
+    )
   }
 
   // ── Standalone auth pages (login, register, forgot-password) ──
@@ -282,11 +328,37 @@ function CustomerLayoutContent({
 
   // ── Customer home (/customer) → bare layout (no sidebar) ──
   if (isCustomerHome) {
+    const showTopBar = hasTableId && mounted && Boolean(profile)
     return (
       <div className="min-h-dvh bg-muted/20 text-foreground">
-        <main className="mx-auto flex min-h-dvh w-full max-w-7xl items-center px-3 py-5 sm:px-6 sm:py-8">
+        {showTopBar && (
+          <header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-3 border-b bg-background/95 px-3.5 backdrop-blur-sm sm:h-14 sm:px-6">
+            <Link
+              href="/customer/dashboard"
+              className="flex items-center gap-2 font-bold tracking-tight"
+            >
+              <ChefHat className="size-5 text-amber-600" />
+              <span>
+                PRIME <span className="text-amber-600">POS</span>
+              </span>
+            </Link>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setScannerOpen(true)}
+              className="h-9 bg-amber-500 font-semibold text-amber-950 hover:bg-amber-400"
+            >
+              <QrCode className="mr-1.5 size-4" />
+              Scan
+            </Button>
+          </header>
+        )}
+        <main
+          className={`mx-auto flex w-full max-w-7xl items-center px-3 py-5 sm:px-6 sm:py-8 ${showTopBar ? "min-h-[calc(100dvh-3rem)]" : "min-h-dvh"}`}
+        >
           {children}
         </main>
+        <QrScannerDialog open={scannerOpen} onOpenChange={setScannerOpen} />
       </div>
     )
   }
@@ -299,11 +371,23 @@ function CustomerLayoutContent({
         <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-3 border-b bg-background/95 px-3.5 backdrop-blur-sm sm:h-14 sm:px-4">
           <SidebarTrigger aria-label="Toggle customer navigation" />
           <Separator orientation="vertical" className="h-5" />
+          {mounted && profile && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setScannerOpen(true)}
+              className="ml-auto h-9 bg-amber-500 font-semibold text-amber-950 hover:bg-amber-400"
+            >
+              <QrCode className="mr-1.5 size-4" />
+              Scan
+            </Button>
+          )}
         </header>
         <div className="w-full max-w-full min-w-0 flex-1 p-3 sm:p-6">
           {children}
         </div>
       </SidebarInset>
+      <QrScannerDialog open={scannerOpen} onOpenChange={setScannerOpen} />
     </SidebarProvider>
   )
 }
@@ -322,6 +406,7 @@ export function CustomerLayoutShell({
           {children}
         </CustomerLayoutContent>
       </Suspense>
+      <InstallPrompt />
     </CustomerSessionProvider>
   )
 }
