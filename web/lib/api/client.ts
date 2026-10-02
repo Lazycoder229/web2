@@ -139,8 +139,18 @@ function attachStorageListener() {
 type Envelope<T> = {
   success?: boolean
   data?: T
-  error?: string
-  message?: string
+  error?: unknown
+  message?: unknown
+}
+
+/** The backend may send `error` as a string or as `{ code, message }`. */
+function errorText(value: unknown): string | undefined {
+  if (typeof value === "string" && value) return value
+  if (value && typeof value === "object") {
+    const message = (value as { message?: unknown }).message
+    if (typeof message === "string" && message) return message
+  }
+  return undefined
 }
 
 type RefreshedTokens = {
@@ -435,7 +445,9 @@ export async function api<T>(
         return {
           success: false,
           error:
-            json?.error ?? json?.message ?? `Request failed (${res.status}).`,
+            errorText(json?.error) ??
+            errorText(json?.message) ??
+            `Request failed (${res.status}).`,
         }
       }
 

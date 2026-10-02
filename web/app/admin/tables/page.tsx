@@ -91,7 +91,7 @@ const emptyForm: TableFormValues = {
 
 function buildQrUrl(tableId: string) {
   const path = `/customer?tableId=${encodeURIComponent(tableId)}`
-  const customerBaseUrl = process.env.NEXT_PUBLIC_CUSTOMER_URL?.replace(
+  const customerBaseUrl = process.env.LAVALUST_URL?.replace(
     /\/+$/,
     ""
   )
@@ -124,7 +124,7 @@ const statusTabs: { value: "all" | TableStatus; label: string }[] = [
 function getTableQrUrl(table: RestaurantTable) {
   // All table QR codes open the shared portal with table context.
   const qrPath = `/customer?tableId=${encodeURIComponent(table.id)}`
-  const customerBaseUrl = process.env.NEXT_PUBLIC_CUSTOMER_URL?.replace(
+  const customerBaseUrl = process.env.LAVALUST_URL?.replace(
     /\/+$/,
     ""
   )
