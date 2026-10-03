@@ -22,6 +22,8 @@ export type CustomerProfile = {
   name: string
   email: string
   contactNumber?: string | null
+  dateOfBirth?: string | null
+  hasPwdId?: boolean
   loyaltyPointsBalance: number
 }
 
@@ -37,6 +39,8 @@ export async function registerCustomer(input: {
   email: string
   password: string
   contactNumber?: string
+  dateOfBirth: string
+  pwdIdNumber?: string
   remember?: boolean
 }) {
   const { remember = true, ...fields } = input
@@ -173,6 +177,7 @@ export function logoutCustomer() {
 }
 
 export function createCustomerQrOrder(input: {
+  requestId: string
   tableId: string
   orderType: "qr"
   paymentMethod?: "gcash" | "maya"
@@ -205,7 +210,9 @@ export async function fetchCustomerProfile() {
       }
 }
 
-export async function updateCustomerProfile(input: Partial<CustomerProfile>) {
+export async function updateCustomerProfile(
+  input: Partial<CustomerProfile> & { pwdIdNumber?: string }
+) {
   const result = await api<{ customer: CustomerProfile }>("/customers/me", {
     method: "PUT",
     body: JSON.stringify(input),

@@ -84,6 +84,8 @@ function clearStoredCache() {
 }
 
 function cacheLifetime(path: string): number {
+  // Payment verification changes whether a customer can open a receipt.
+  if (/^\/customers\/me\/orders(\/|$)/.test(path)) return 3_000
   // Keep each signed-in customer's account data warm across page visits.
   if (/^\/customers\/me\//.test(path)) return 2 * 60_000
   // Table status changes as customers scan and staff seat guests.

@@ -19,6 +19,7 @@ class Order extends Controller
     private $inventoryLogs;
     private $menuIngredients;
     private $stockRestorer;
+    private $pricing;
 
     public function __construct()
     {
@@ -38,6 +39,7 @@ class Order extends Controller
         $this->inventoryLogs = $this->call->model('InventoryStockLogModel');
         $this->menuIngredients = $this->call->model('MenuItemIngredientModel');
         $this->stockRestorer = $this->call->library('OrderStockRestorer');
+        $this->pricing = $this->call->library('OrderPricing');
     }
 
     #[Get('/orders', middleware: ['admin_auth'])]
@@ -73,6 +75,9 @@ class Order extends Controller
         $guestIpHash = null;
         $paymentMethod = $input['paymentMethod'] ?? null;
         $paymentReference = isset($input['paymentReference']) ? trim((string) $input['paymentReference']) : null;
+        $systemSettingsRows = $this->settings->query()->get_all() ?: [];
+        $systemSettings = $systemSettingsRows[0] ?? [];
+        $requestId = null;
         if ($orderType === 'qr') {
             if ($paymentMethod !== null && !in_array($paymentMethod, ['gcash', 'maya'], true)) {
                 $this->api->respond_error('Choose GCash, Maya, or pay at the counter.', 422);
@@ -84,9 +89,8 @@ class Order extends Controller
                 if (strlen($paymentReference) > 100) {
                     $this->api->respond_error('Transaction reference must be 100 characters or fewer.', 422);
                 }
-                $settingsRows = $this->settings->query()->get_all() ?: [];
                 $qrColumn = $paymentMethod . '_qr_image';
-                if (empty($settingsRows[0][$qrColumn])) {
+                if (empty($systemSettings[$qrColumn])) {
                     $this->api->respond_error(strtoupper($paymentMethod) . ' payment is not set up yet. Please pay at the counter.', 422);
                 }
             }
@@ -97,6 +101,25 @@ class Order extends Controller
                 $this->api->respond_error('Sign in to your customer account to place a QR order.', 401);
             }
             $customerId = $claims['sub'];
+
+            // Reuse the order UUID on retries so the database prevents duplicates.
+            if (isset($input['requestId']) && $input['requestId'] !== '') {
+                $requestId = strtolower((string) $input['requestId']);
+                if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $requestId)) {
+                    $this->api->respond_error('Order request identifier is invalid.', 422);
+                }
+
+                $existingOrder = $this->orders->find($requestId);
+                if ($existingOrder) {
+                    if (($existingOrder['customer_id'] ?? null) !== $customerId || ($existingOrder['order_type'] ?? '') !== 'qr') {
+                        $this->api->respond_error('This order request could not be completed. Refresh your order and try again.', 409);
+                    }
+                    $this->success([
+                        'orderNumber' => $existingOrder['order_number'],
+                        'order' => $this->format_order($existingOrder),
+                    ]);
+                }
+            }
         }
         $items = $input['items'] ?? [];
         if (!is_array($items) || !$items) {
@@ -142,34 +165,58 @@ class Order extends Controller
             $normalized[] = ['menu_item_id' => $menu_item['id'], 'quantity' => $quantity, 'unit_price' => number_format($price, 2, '.', ''), 'subtotal' => number_format($line_total, 2, '.', ''), 'notes' => $item['notes'] ?? null];
         }
 
-        $id = $this->uuid();
+        $customer = $customerId ? $this->customers->find($customerId) : null;
+        $seniorPwdEnabled = in_array($systemSettings['senior_pwd_discount_enabled'] ?? false, [true, 1, '1'], true);
+        try {
+            $pricing = $this->pricing->calculate($subtotal, $normalized, $input, $customer, $seniorPwdEnabled, $systemSettings);
+        } catch (InvalidArgumentException $error) {
+            $this->api->respond_error($error->getMessage(), 422);
+        }
+
+        $id = $requestId ?? $this->uuid();
         $order_number = 'ORD-' . date('ymdHis') . '-' . strtoupper(substr(str_replace('-', '', $id), 0, 4));
-        $created = $this->orders->insert([
-            'id' => $id,
-            'order_number' => $order_number,
-            'table_id' => $input['tableId'] ?? null,
-            'customer_id' => $customerId,
-            'guest_ip_hash' => $guestIpHash,
-            'order_type' => $orderType,
-            'status' => 'pending',
-            'subtotal' => number_format($subtotal, 2, '.', ''),
-            'discount' => '0.00',
-            'tax' => '0.00',
-            'total' => number_format($subtotal, 2, '.', ''),
-            'payment_status' => $paymentMethod ? 'awaiting_verification' : 'not_required',
-            'payment_method' => $paymentMethod,
-            'payment_reference' => $paymentReference,
-            'created_by_staff_id' => $input['createdByStaffId'] ?? null,
-        ]);
+        try {
+            $created = $this->orders->insert([
+                'id' => $id,
+                'order_number' => $order_number,
+                'table_id' => $input['tableId'] ?? null,
+                'customer_id' => $customerId,
+                'guest_ip_hash' => $guestIpHash,
+                'order_type' => $orderType,
+                'status' => 'pending',
+                'subtotal' => number_format($subtotal, 2, '.', ''),
+                'discount' => number_format($pricing['discount'], 2, '.', ''),
+                'tax' => number_format($pricing['tax'], 2, '.', ''),
+                'total' => number_format($pricing['total'], 2, '.', ''),
+                'payment_status' => $orderType === 'qr' ? 'awaiting_verification' : 'not_required',
+                'payment_method' => $paymentMethod,
+                'payment_reference' => $paymentReference,
+                'created_by_staff_id' => $input['createdByStaffId'] ?? null,
+            ]);
+        } catch (Throwable $error) {
+            // A duplicate primary key is expected when concurrent retries race.
+            $created = false;
+        }
         if ($created === false) {
+            // A concurrent retry may have inserted this request first.
+            $existingOrder = $this->orders->find($id);
+            if ($requestId && $existingOrder && ($existingOrder['customer_id'] ?? null) === $customerId && ($existingOrder['order_type'] ?? '') === 'qr') {
+                $this->success([
+                    'orderNumber' => $existingOrder['order_number'],
+                    'order' => $this->format_order($existingOrder),
+                ]);
+            }
             $this->api->respond_error('Could not create order.', 500);
         }
         foreach ($normalized as $item) {
             $this->items->insert(array_merge(['id' => $this->uuid(), 'order_id' => $id], $item));
         }
 
+        $staffOrActorId = $input['createdByStaffId'] ?? null;
+        $this->pricing->record($id, $pricing, $staffOrActorId);
+
         // Deduct stock for menu items and linked ingredients, and record immutable stock logs
-        $staffOrActorId = $input['createdByStaffId'] ?? $customerId ?? null;
+        $staffOrActorId = $staffOrActorId ?? $customerId ?? null;
         $this->deduct_stock_for_order($normalized, $order_number, $staffOrActorId);
 
         // Same for QR and cashier orders: the table is taken as soon as an order is placed.

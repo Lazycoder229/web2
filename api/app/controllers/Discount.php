@@ -8,6 +8,7 @@ class Discount extends Controller
     private $api;
     private $types;
     private $promotions;
+    private $promotionItems;
     public function __construct()
     {
         parent::__construct();
@@ -15,6 +16,7 @@ class Discount extends Controller
         $this->api = $this->call->library('api');
         $this->types = $this->call->model('DiscountTypeModel');
         $this->promotions = $this->call->model('PromotionModel');
+        $this->promotionItems = $this->call->model('PromotionItemModel');
     }
     #[Get('/discounts')] public function index()
     {
@@ -38,13 +40,19 @@ class Discount extends Controller
     }
     #[Post('/discounts/promotions')] public function create_promo()
     {
+        $input = $this->api->body();
         $id = $this->uuid();
-        $this->promotions->insert(array_merge(['id' => $id], $this->promo_columns($this->api->body())));
+        $this->promotions->insert(array_merge(['id' => $id], $this->promo_columns($input)));
+        $this->save_promotion_items($id, $input['menuItemIds'] ?? []);
         $this->success(['promotion' => $this->format_promo($this->promotions->find($id))], 201);
     }
     #[Put('/discounts/promotions/{id:uuid}')] public function update_promo($id)
     {
-        $this->promotions->query()->where('id', $id)->update($this->promo_columns($this->api->body()));
+        $input = $this->api->body();
+        $this->promotions->query()->where('id', $id)->update($this->promo_columns($input));
+        if (array_key_exists('menuItemIds', $input)) {
+            $this->save_promotion_items($id, $input['menuItemIds']);
+        }
         $this->success(['promotion' => $this->format_promo($this->promotions->find($id))]);
     }
     #[Delete('/discounts/promotions/{id:uuid}')] public function delete_promo($id)
@@ -72,13 +80,24 @@ class Discount extends Controller
             }
         } return $o;
     }
+    private function save_promotion_items($promotionId, $menuItemIds)
+    {
+        $this->promotionItems->query()->where('promotion_id', $promotionId)->delete();
+        foreach (array_unique(is_array($menuItemIds) ? $menuItemIds : []) as $menuItemId) {
+            $this->promotionItems->insert([
+                'promotion_id' => $promotionId,
+                'menu_item_id' => $menuItemId,
+            ]);
+        }
+    }
     private function format_type($r)
     {
         return ['id' => (string)$r['id'],'name' => $r['name'],'percentage' => (float)$r['percentage'],'requiresIdVerification' => (bool)$r['requires_id_verification'],'isActive' => (bool)$r['is_active']];
     }
     private function format_promo($r)
     {
-        return ['id' => (string)$r['id'],'name' => $r['name'],'description' => $r['description'],'promoType' => $r['promo_type'],'discountValue' => (float)$r['discount_value'],'minSpend' => (float)$r['min_spend'],'startDate' => $r['start_date'],'endDate' => $r['end_date'],'usageLimit' => $r['usage_limit'],'usageCount' => (int)($r['usage_count'] ?? 0),'isActive' => (bool)$r['is_active']];
+        $linkedItems = $this->promotionItems->query()->where('promotion_id', $r['id'])->get_all() ?: [];
+        return ['id' => (string)$r['id'],'name' => $r['name'],'description' => $r['description'],'promoType' => $r['promo_type'],'discountValue' => $r['discount_value'] === null ? null : (float)$r['discount_value'],'minSpend' => $r['min_spend'] === null ? null : (float)$r['min_spend'],'startDate' => $r['start_date'],'endDate' => $r['end_date'],'usageLimit' => $r['usage_limit'] === null ? null : (int)$r['usage_limit'],'usageCount' => (int)($r['usage_count'] ?? 0),'isActive' => (bool)$r['is_active'],'menuItemIds' => array_map(static function ($item) { return (string) $item['menu_item_id']; }, $linkedItems)];
     }
     private function uuid()
     {

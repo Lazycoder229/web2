@@ -60,7 +60,7 @@ export function CustomerReceipt({
         if (!active) return
         if (orderResult.success && orderResult.data) {
           const row = orderResult.data.order
-          if (row.paymentStatus === "awaiting_verification") {
+          if (row.paymentStatus !== "paid") {
             setPaymentPending(true)
           } else
             setOrder({
@@ -126,7 +126,7 @@ export function CustomerReceipt({
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-8 text-center">
       <p className="font-medium">Payment verification in progress</p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Staff will verify your wallet transfer. Your digital receipt will be
+        Staff must confirm your payment first. Your digital receipt will be
         available after the payment is confirmed.
       </p>
       {!embedded && (

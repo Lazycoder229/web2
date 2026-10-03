@@ -95,6 +95,8 @@ export function CustomerAccount({
             email: String(values.email ?? ""),
             password: String(values.password ?? ""),
             contactNumber: String(values.contactNumber ?? ""),
+            dateOfBirth: String(values.dateOfBirth ?? ""),
+            pwdIdNumber: String(values.pwdIdNumber ?? ""),
             remember,
           })
     setBusy(false)
@@ -122,6 +124,8 @@ export function CustomerAccount({
       name: String(values.name ?? ""),
       email: String(values.email ?? ""),
       contactNumber: String(values.contactNumber ?? ""),
+      dateOfBirth: String(values.dateOfBirth ?? ""),
+      pwdIdNumber: String(values.pwdIdNumber ?? ""),
     })
     setBusy(false)
     if (!result.success || !result.data) {
@@ -209,6 +213,27 @@ export function CustomerAccount({
                   name="contactNumber"
                   className="h-10"
                   defaultValue={profile.contactNumber ?? ""}
+                />
+              </div>
+              <div className="space-y-1.5 sm:row-start-3">
+                <Label htmlFor="profile-birthday">Birthday</Label>
+                <Input
+                  id="profile-birthday"
+                  name="dateOfBirth"
+                  type="date"
+                  required
+                  className="h-10"
+                  defaultValue={profile.dateOfBirth ?? ""}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-start-2 sm:row-start-3">
+                <Label htmlFor="profile-pwd-id">PWD ID number (leave blank to keep saved ID)</Label>
+                <Input
+                  id="profile-pwd-id"
+                  name="pwdIdNumber"
+                  maxLength={50}
+                  className="h-10"
+                  placeholder={profile.hasPwdId ? "PWD ID is saved" : "If applicable"}
                 />
               </div>
               <div className="flex flex-col-reverse gap-3 border-t pt-4 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
@@ -345,6 +370,26 @@ export function CustomerAccount({
                       id="customer-phone"
                       name="contactNumber"
                       autoComplete="tel"
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="customer-birthday">Birthday</Label>
+                    <Input
+                      id="customer-birthday"
+                      name="dateOfBirth"
+                      type="date"
+                      autoComplete="bday"
+                      required
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="customer-pwd-id">PWD ID number (if applicable)</Label>
+                    <Input
+                      id="customer-pwd-id"
+                      name="pwdIdNumber"
+                      maxLength={50}
                       className="h-9"
                     />
                   </div>

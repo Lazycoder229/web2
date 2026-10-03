@@ -180,9 +180,9 @@ export function CustomerOrders() {
                             {money(order.total)}
                           </p>
                         </div>
-                        {order.paymentStatus === "awaiting_verification" ? (
+                        {order.paymentStatus !== "paid" ? (
                           <Button size="sm" variant="outline" disabled>
-                            Verifying payment
+                            Receipt after payment
                           </Button>
                         ) : (
                           <Button
@@ -233,9 +233,9 @@ export function CustomerOrders() {
                             {money(order.total)}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            {order.paymentStatus === "awaiting_verification" ? (
+                            {order.paymentStatus !== "paid" ? (
                               <Button size="sm" variant="outline" disabled>
-                                Verifying payment
+                                Receipt after payment
                               </Button>
                             ) : (
                               <Button

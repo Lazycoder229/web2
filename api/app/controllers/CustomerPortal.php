@@ -35,8 +35,17 @@ class CustomerPortal extends Controller
         $email = strtolower(trim((string) ($input['email'] ?? '')));
         $password = (string) ($input['password'] ?? '');
         $name = trim((string) ($input['name'] ?? ''));
+        $dateOfBirth = trim((string) ($input['dateOfBirth'] ?? ''));
+        $pwdIdNumber = trim((string) ($input['pwdIdNumber'] ?? ''));
         if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 8 || $name === '') {
             $this->api->respond_error('Enter a name, valid email, and password with at least 8 characters.', 422);
+        }
+        $birthDate = DateTimeImmutable::createFromFormat('!Y-m-d', $dateOfBirth);
+        if (!$birthDate || $birthDate->format('Y-m-d') !== $dateOfBirth || $birthDate > new DateTimeImmutable('today')) {
+            $this->api->respond_error('Enter a valid birthday that is not in the future.', 422);
+        }
+        if (strlen($pwdIdNumber) > 50) {
+            $this->api->respond_error('PWD ID number must be 50 characters or fewer.', 422);
         }
         if ($this->customers->query()->where('email', $email)->get_all()) {
             $this->api->respond_error('An account with this email already exists.', 409);
@@ -49,6 +58,8 @@ class CustomerPortal extends Controller
             'password' => password_hash($password, PASSWORD_DEFAULT),
             'name' => $name,
             'contact_number' => trim((string) ($input['contactNumber'] ?? '')) ?: null,
+            'date_of_birth' => $dateOfBirth,
+            'pwd_id_number' => $pwdIdNumber !== '' ? $pwdIdNumber : null,
             'loyalty_points_balance' => 0,
             'is_guest' => 0,
         ]);
@@ -130,6 +141,19 @@ class CustomerPortal extends Controller
         $data = [];
         if (isset($input['name']) && trim((string) $input['name']) !== '') $data['name'] = trim((string) $input['name']);
         if (array_key_exists('contactNumber', $input)) $data['contact_number'] = trim((string) $input['contactNumber']) ?: null;
+        if (array_key_exists('dateOfBirth', $input)) {
+            $dateOfBirth = trim((string) $input['dateOfBirth']);
+            $birthDate = DateTimeImmutable::createFromFormat('!Y-m-d', $dateOfBirth);
+            if (!$birthDate || $birthDate->format('Y-m-d') !== $dateOfBirth || $birthDate > new DateTimeImmutable('today')) {
+                $this->api->respond_error('Enter a valid birthday that is not in the future.', 422);
+            }
+            $data['date_of_birth'] = $dateOfBirth;
+        }
+        if (array_key_exists('pwdIdNumber', $input)) {
+            $pwdIdNumber = trim((string) $input['pwdIdNumber']);
+            if (strlen($pwdIdNumber) > 50) $this->api->respond_error('PWD ID number must be 50 characters or fewer.', 422);
+            if ($pwdIdNumber !== '') $data['pwd_id_number'] = $pwdIdNumber;
+        }
         if (isset($input['email'])) {
             $email = strtolower(trim((string) $input['email']));
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $this->api->respond_error('Enter a valid email address.', 422);
@@ -292,7 +316,7 @@ class CustomerPortal extends Controller
 
     private function format_customer($row)
     {
-        return ['id' => (string) $row['id'], 'name' => $row['name'], 'email' => $row['email'], 'contactNumber' => $row['contact_number'] ?? null, 'loyaltyPointsBalance' => (int) ($row['loyalty_points_balance'] ?? 0)];
+        return ['id' => (string) $row['id'], 'name' => $row['name'], 'email' => $row['email'], 'contactNumber' => $row['contact_number'] ?? null, 'dateOfBirth' => $row['date_of_birth'] ?? null, 'hasPwdId' => !empty($row['pwd_id_number']), 'loyaltyPointsBalance' => (int) ($row['loyalty_points_balance'] ?? 0)];
     }
 
     private function format_order($row)

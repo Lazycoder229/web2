@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Minus, Plus, QrCode, ShoppingBag, Utensils, X } from "lucide-react"
 import { toast } from "sonner"
@@ -40,6 +40,8 @@ type TableOption = {
 }
 type CartLine = { item: MenuItem; quantity: number }
 type CustomerPaymentMethod = "counter" | "gcash" | "maya"
+type PendingOrderRequest = { fingerprint: string; requestId: string }
+const PENDING_ORDER_REQUEST_KEY = "prime-pos:customer-pending-order-request"
 
 type QrOrderExperienceProps = {
   tableId?: string
@@ -80,6 +82,8 @@ export function QrOrderExperience({
   const [loading, setLoading] = useState(true)
   const [tablesError, setTablesError] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const submissionInFlight = useRef(false)
+  const pendingOrderRequest = useRef<PendingOrderRequest | null>(null)
   const [loadError, setLoadError] = useState("")
 
   useEffect(() => {
@@ -247,9 +251,10 @@ export function QrOrderExperience({
   }
 
   async function submitOrder(referenceNumber?: string) {
-    const hasCustomerAccount = Boolean(getCustomerAccessToken())
+    if (submissionInFlight.current) return
+    submissionInFlight.current = true
     setSubmitting(true)
-    const result = await createCustomerQrOrder({
+    const orderInput = {
       tableId: selectedTable,
       orderType: "qr",
       ...(paymentMethod !== "counter"
@@ -259,16 +264,80 @@ export function QrOrderExperience({
         menuItemId: item.id,
         quantity,
       })),
-    })
-    setSubmitting(false)
+    } as const
+    const fingerprint = JSON.stringify(orderInput)
+    let savedRequest: PendingOrderRequest | null = null
+    try {
+      const stored = window.sessionStorage.getItem(PENDING_ORDER_REQUEST_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored) as PendingOrderRequest
+        if (parsed.fingerprint === fingerprint && parsed.requestId) {
+          savedRequest = parsed
+        }
+      }
+    } catch {
+      // Keep retry protection in memory when browser storage is unavailable.
+    }
+    if (!savedRequest && pendingOrderRequest.current?.fingerprint === fingerprint) {
+      savedRequest = pendingOrderRequest.current
+    }
+    if (!savedRequest) {
+      savedRequest = { fingerprint, requestId: crypto.randomUUID() }
+    }
+    pendingOrderRequest.current = savedRequest
+    try {
+      window.sessionStorage.setItem(
+        PENDING_ORDER_REQUEST_KEY,
+        JSON.stringify(savedRequest)
+      )
+    } catch {
+      // Keep the request usable if storage is unavailable.
+    }
+
+    const sendOrder = () =>
+      createCustomerQrOrder({
+        ...orderInput,
+        requestId: savedRequest.requestId,
+      })
+    let result
+    try {
+      result = await sendOrder()
+      if (!result.success || !result.data) {
+        const retryResult = await sendOrder().catch(() => null)
+        if (retryResult?.success && retryResult.data) result = retryResult
+      }
+    } catch {
+      try {
+        result = await sendOrder()
+      } catch {
+        result = {
+          success: false as const,
+          error: "The server did not confirm its response.",
+        }
+      }
+    } finally {
+      submissionInFlight.current = false
+      setSubmitting(false)
+    }
     if (!result.success || !result.data) {
       toast.error("Could not place your order", {
-        description:
-          result.error ??
-          "The server did not confirm the order. Check with staff before trying again.",
+        description: `${result.error ?? "The server did not confirm the order."} Your order may already be saved. Retry this same order safely; it will not be duplicated.`,
       })
       return
     }
+    try {
+      const stored = window.sessionStorage.getItem(PENDING_ORDER_REQUEST_KEY)
+      if (
+        stored &&
+        (JSON.parse(stored) as PendingOrderRequest).requestId ===
+          savedRequest.requestId
+      ) {
+        window.sessionStorage.removeItem(PENDING_ORDER_REQUEST_KEY)
+      }
+    } catch {
+      // No action is needed when browser storage is unavailable.
+    }
+    pendingOrderRequest.current = null
     if (typeof window !== "undefined")
       window.sessionStorage.setItem(
         "prime-pos:customer-table-id",
@@ -278,25 +347,12 @@ export function QrOrderExperience({
     setCartSheetOpen(false)
     setPaymentDialogOpen(false)
     toast.success(
-      paymentMethod === "counter"
-        ? "Order sent to the kitchen."
-        : "Payment submitted for verification.",
+      "Order received. Payment confirmation can follow.",
       {
-        description:
-          paymentMethod === "counter"
-            ? `Order ${result.data.orderNumber}`
-            : `Order ${result.data.orderNumber} · ${paymentMethod.toUpperCase()}`,
+        description: `Order ${result.data.orderNumber} · receipt available after staff confirms payment.`,
       }
     )
-    if (
-      hasCustomerAccount &&
-      paymentMethod !== "gcash" &&
-      paymentMethod !== "maya"
-    ) {
-      router.push(`/customer/receipt/${result.data.order.id}`)
-    } else if (hasCustomerAccount) {
-      router.push("/customer/orders")
-    }
+    router.push("/customer/orders")
   }
 
   async function submitWalletOrder(event: FormEvent<HTMLFormElement>) {

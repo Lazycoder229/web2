@@ -5,7 +5,7 @@ class CustomerModel extends Model
 {
     protected $table = 'customers';
     protected $primary_key = 'id';
-    protected $fillable = ['id', 'email', 'password', 'name', 'contact_number', 'loyalty_points_balance', 'is_guest', 'created_at', 'updated_at'];
+    protected $fillable = ['id', 'email', 'password', 'name', 'contact_number', 'date_of_birth', 'pwd_id_number', 'loyalty_points_balance', 'is_guest', 'created_at', 'updated_at'];
     protected $guarded = [];
     protected $timestamps = true;
 }

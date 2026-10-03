@@ -74,6 +74,7 @@ import {
 import { getMenuDataAction } from "@/lib/api/menu"
 import { fetchTables } from "@/lib/api/tables"
 import { fetchSystemSettings } from "@/lib/api/settings"
+import { fetchDiscounts } from "@/lib/api/discounts"
 import { createVoidAction } from "@/lib/api/voids"
 import {
   DigitalReceipt,
@@ -156,9 +157,22 @@ type DiscountTypeData = {
   requiresIdVerification: boolean
   isActive: boolean
 }
+type PromotionData = {
+  id: string
+  name: string
+  promoType: "percentage" | "fixed_amount" | "buy_x_get_y"
+  discountValue: number | null
+  minSpend: number | null
+  startDate: string
+  endDate: string
+  usageLimit: number | null
+  usageCount: number
+  isActive: boolean
+  menuItemIds: string[]
+}
 
 function isSeniorPwdDiscount(name: string): boolean {
-  return /\b(senior|pwd)\b|person\s+with\s+disabilit/i.test(name)
+  return /\b(senior|pwd)\b|disabilit/i.test(name)
 }
 
 const emptyForm: OrderForm = {
@@ -239,13 +253,14 @@ function computeTotals(
   store: Pick<
     DigitalReceiptStoreInfo,
     "vatEnabled" | "vatRate" | "vatInclusive"
-  >
+  >,
+  statutoryDiscount = false
 ) {
   const netAfterDiscount = subtotal - discountAmount
   let tax = 0
   let total = netAfterDiscount
 
-  if (store.vatEnabled) {
+  if (store.vatEnabled && !statutoryDiscount) {
     if (store.vatInclusive) {
       tax = Number(
         (netAfterDiscount * (store.vatRate / (100 + store.vatRate))).toFixed(2)
@@ -279,6 +294,7 @@ export default function OrdersPage() {
   const [discountTypesData, setDiscountTypesData] = useState<
     DiscountTypeData[]
   >([])
+  const [promotionsData, setPromotionsData] = useState<PromotionData[]>([])
   const [storeInfo, setStoreInfo] =
     useState<DigitalReceiptStoreInfo>(DEFAULT_STORE_INFO)
   const [loading, setLoading] = useState(true)
@@ -366,6 +382,21 @@ export default function OrdersPage() {
           toast.error("Failed to load tables", { description: tablesRes.error })
         }
       })
+
+    const discountsTask = fetchDiscounts()
+      .then((discountsRes) => {
+        if (discountsRes.success && discountsRes.data) {
+          setDiscountTypesData(discountsRes.data.discountTypes ?? [])
+          setPromotionsData(discountsRes.data.promotions ?? [])
+        } else if (!discountsRes.success) {
+          toast.error("Failed to load discounts and promotions", {
+            description: discountsRes.error,
+          })
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load discounts and promotions:", err)
+      })
       .catch((err) => {
         console.error("Failed to load tables for orders:", err)
         toast.error("Failed to load tables", {
@@ -406,7 +437,7 @@ export default function OrdersPage() {
         })
       })
 
-    await Promise.all([ordersTask, catalogTask, tablesTask, settingsTask])
+    await Promise.all([ordersTask, catalogTask, tablesTask, settingsTask, discountsTask])
   }, [])
 
   useEffect(() => {
@@ -666,15 +697,89 @@ export default function OrdersPage() {
   ) {
     const discountType =
       discountTypesData.find((d) => d.id === discountTypeId) ?? null
-    const discountAmount = discountType
-      ? Number((subtotal * (discountType.percentage / 100)).toFixed(2))
+    const statutoryDiscount = Boolean(
+      discountType && isSeniorPwdDiscount(discountType.name)
+    )
+    const discountPercentage = discountType
+      ? statutoryDiscount
+        ? Math.max(20, discountType.percentage)
+        : discountType.percentage
       : 0
-    const { tax, total } = computeTotals(subtotal, discountAmount, storeInfo)
+    const discountBase =
+      statutoryDiscount && storeInfo.vatEnabled && storeInfo.vatInclusive
+        ? subtotal / (1 + storeInfo.vatRate / 100)
+        : subtotal
+    const discountAmount = discountType
+      ? statutoryDiscount
+        ? Number(
+            (subtotal - discountBase * (1 - discountPercentage / 100)).toFixed(
+              2
+            )
+          )
+        : Number((subtotal * (discountPercentage / 100)).toFixed(2))
+      : 0
+    const today = new Date()
+    const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+    const remainingAfterType = statutoryDiscount
+      ? subtotal
+      : Math.max(0, subtotal - discountAmount)
+    const applicablePromotions = promotionsData
+      .filter(
+        (promotion) =>
+          promotion.isActive &&
+          promotion.startDate <= todayString &&
+          promotion.endDate >= todayString &&
+          (promotion.usageLimit == null ||
+            promotion.usageCount < promotion.usageLimit) &&
+          subtotal >= Number(promotion.minSpend ?? 0)
+      )
+      .map((promotion) => {
+        const eligibleItems = items.filter(
+          (item) =>
+            promotion.menuItemIds.length === 0 ||
+            promotion.menuItemIds.includes(item.menuItemId ?? "")
+        )
+        const eligibleSubtotal = eligibleItems.reduce(
+          (sum, item) => sum + item.quantity * item.price,
+          0
+        )
+        const discountedEligible =
+          subtotal > 0
+            ? eligibleSubtotal * (remainingAfterType / subtotal)
+            : 0
+        let amount = 0
+        if (promotion.promoType === "percentage") {
+          amount = discountedEligible * (Number(promotion.discountValue ?? 0) / 100)
+        } else if (promotion.promoType === "fixed_amount") {
+          amount = Math.min(discountedEligible, Number(promotion.discountValue ?? 0))
+        } else {
+          amount = eligibleItems.reduce(
+            (sum, item) =>
+              sum + Math.floor(item.quantity / 2) * item.price,
+            0
+          )
+          amount = Math.min(discountedEligible, amount)
+        }
+        return Math.min(remainingAfterType, Number(amount.toFixed(2)))
+      })
+    const promotionAmount = applicablePromotions.length
+      ? Math.max(...applicablePromotions)
+      : 0
+    const statutoryApplied = statutoryDiscount && discountAmount >= promotionAmount
+    const totalDiscount = statutoryDiscount
+      ? Math.max(discountAmount, promotionAmount)
+      : Math.min(subtotal, discountAmount + promotionAmount)
+    const { tax, total } = computeTotals(
+      subtotal,
+      totalDiscount,
+      storeInfo,
+      statutoryApplied
+    )
     setForm((current) => ({
       ...current,
       items,
       subtotal,
-      discount: discountAmount,
+      discount: totalDiscount,
       tax,
       total,
     }))
@@ -847,6 +952,12 @@ export default function OrdersPage() {
     if (selectedDiscountRequiresId && !discountIdNumber.trim()) {
       toast.error("ID number required", {
         description: `${selectedDiscountType?.name ?? "This discount"} requires a valid ID number.`,
+      })
+      return
+    }
+    if (selectedDiscountType && !discountHolderName.trim()) {
+      toast.error("Discount holder name required", {
+        description: "Enter the name of the person receiving this discount.",
       })
       return
     }
