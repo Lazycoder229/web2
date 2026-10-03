@@ -8,6 +8,7 @@ class Menu extends Controller
     private $api;
     private $categories;
     private $items;
+    private $stockLogs;
 
     public function __construct()
     {
@@ -16,6 +17,7 @@ class Menu extends Controller
         $this->api = $this->call->library('api');
         $this->categories = $this->call->model('CategoryModel');
         $this->items = $this->call->model('MenuModel');
+        $this->stockLogs = $this->call->model('InventoryStockLogModel');
     }
 
     #[Get('/menu')]
@@ -47,19 +49,57 @@ class Menu extends Controller
             $this->api->respond_error('Could not create menu item.', 500);
         }
 
+        // If an initial stock quantity was provided, create an initial stock log
+        if (isset($data['stock_quantity']) && $data['stock_quantity'] !== null && (int) $data['stock_quantity'] > 0) {
+            $this->stockLogs->insert([
+                'id' => $this->uuid(),
+                'item_type' => 'menu_item',
+                'inventory_item_id' => null,
+                'menu_item_id' => $id,
+                'type' => 'stock_in',
+                'quantity_change' => (float) $data['stock_quantity'],
+                'quantity_after' => (float) $data['stock_quantity'],
+                'note' => 'Initial stock on menu item creation',
+                'performed_by_staff_id' => null,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
         $this->success(['item' => $this->format_item($this->items->find($id))], 201);
     }
 
     #[Put('/menu-items/{id:uuid}', middleware: ['admin_auth'])]
     public function update_item($id)
     {
-        if (!$this->items->find($id)) {
+        $existing = $this->items->find($id);
+        if (!$existing) {
             $this->api->respond_error('Menu item not found.', 404);
         }
         $input = $this->api->body();
         $changes = $this->validate_item($input, true);
         if (!$changes) {
             $this->api->respond_error('No menu item fields were provided.', 422);
+        }
+
+        // If stock_quantity is being changed, record an immutable stock log
+        if (array_key_exists('stock_quantity', $changes)) {
+            $oldStock = $existing['stock_quantity'] === null ? null : (int) $existing['stock_quantity'];
+            $newStock = $changes['stock_quantity'] === null ? null : (int) $changes['stock_quantity'];
+            if ($oldStock !== $newStock) {
+                $change = ($newStock ?? 0) - ($oldStock ?? 0);
+                $this->stockLogs->insert([
+                    'id' => $this->uuid(),
+                    'item_type' => 'menu_item',
+                    'inventory_item_id' => null,
+                    'menu_item_id' => $id,
+                    'type' => 'adjustment',
+                    'quantity_change' => (float) $change,
+                    'quantity_after' => $newStock,
+                    'note' => 'Stock adjusted via Menu Management',
+                    'performed_by_staff_id' => null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
         }
 
         $this->items->query()->where('id', $id)->update(array_merge($changes, ['updated_at' => date('Y-m-d H:i:s')]));

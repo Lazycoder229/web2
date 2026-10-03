@@ -36,3 +36,21 @@ export function adjustStockAction(input: AnyInput): Promise<any> {
     body: JSON.stringify(input),
   })
 }
+
+export function fetchRecipesAction(): Promise<any> {
+  return api<any>("/inventory/recipes")
+}
+
+export function fetchMenuItemRecipeAction(menuItemId: string): Promise<any> {
+  return api<any>(`/inventory/recipes/${menuItemId}`)
+}
+
+export function saveRecipeAction(input: {
+  menuItemId: string
+  ingredients: { inventoryItemId: string; quantityUsed: number }[]
+}): Promise<any> {
+  return api<any>("/inventory/recipes", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}

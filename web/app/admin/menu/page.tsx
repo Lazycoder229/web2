@@ -13,6 +13,7 @@ import {
   Loader2,
   X,
   Settings2,
+  Layers,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -65,6 +66,11 @@ import {
   deleteMenuItemAction,
   uploadMenuImageAction,
 } from "@/lib/api/menu"
+import {
+  fetchInventory,
+  fetchMenuItemRecipeAction,
+  saveRecipeAction,
+} from "@/lib/api/inventory"
 
 import type { Category, MenuItem, MenuItemFormValues } from "@/types/admin/menu"
 import {
@@ -139,6 +145,67 @@ export default function MenuPage() {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [viewingItem, setViewingItem] = useState<MenuItem | null>(null)
+
+  // ── Recipe linking state ──
+  const [recipeSheetOpen, setRecipeSheetOpen] = useState(false)
+  const [recipeMenuItem, setRecipeMenuItem] = useState<MenuItem | null>(null)
+  const [inventoryItems, setInventoryItems] = useState<any[]>([])
+  const [recipeIngredients, setRecipeIngredients] = useState<
+    { inventoryItemId: string; quantityUsed: number }[]
+  >([])
+  const [loadingRecipe, setLoadingRecipe] = useState(false)
+  const [savingRecipe, setSavingRecipe] = useState(false)
+
+  const openRecipeSheet = async (item: MenuItem) => {
+    setRecipeMenuItem(item)
+    setRecipeSheetOpen(true)
+    setLoadingRecipe(true)
+    try {
+      const [invRes, recipeRes] = await Promise.all([
+        fetchInventory(),
+        fetchMenuItemRecipeAction(item.id),
+      ])
+      if (invRes.success && invRes.data.items) {
+        setInventoryItems(invRes.data.items)
+      }
+      if (recipeRes.success && recipeRes.data.ingredients) {
+        setRecipeIngredients(recipeRes.data.ingredients)
+      } else {
+        setRecipeIngredients([])
+      }
+    } catch {
+      toast.error("Failed to load recipe ingredients")
+    } finally {
+      setLoadingRecipe(false)
+    }
+  }
+
+  const handleSaveRecipe = async () => {
+    if (!recipeMenuItem) return
+    const valid = recipeIngredients.filter(
+      (r) => r.inventoryItemId && Number(r.quantityUsed) > 0
+    )
+    setSavingRecipe(true)
+    try {
+      const res = await saveRecipeAction({
+        menuItemId: recipeMenuItem.id,
+        ingredients: valid.map((r) => ({
+          inventoryItemId: r.inventoryItemId,
+          quantityUsed: Number(r.quantityUsed),
+        })),
+      })
+      if (res.success) {
+        toast.success(`Recipe saved for ${recipeMenuItem.name}`)
+        setRecipeSheetOpen(false)
+      } else {
+        toast.error(res.message || "Failed to save recipe")
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save recipe")
+    } finally {
+      setSavingRecipe(false)
+    }
+  }
 
   // ── Initial load ──
   const loadMenu = useCallback(async () => {
@@ -1059,6 +1126,17 @@ export default function MenuPage() {
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8 text-muted-foreground hover:bg-amber-500/10 hover:text-amber-500"
+                          title="Recipe & Ingredients"
+                          onClick={() => openRecipeSheet(item)}
+                        >
+                          <Layers className="h-3.5 w-3.5" />
+                          <span className="sr-only">Recipe and ingredients</span>
+                        </Button>
+
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-muted-foreground hover:bg-amber-500/10 hover:text-amber-500"
                           onClick={() => openEditSheet(item)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -1217,6 +1295,182 @@ export default function MenuPage() {
             </DialogPrimitive.Overlay>
           </DialogPrimitive.Portal>
         </DialogPrimitive.Root>
+
+        {/* ── Recipe / Ingredients Sheet in Menu Management ── */}
+        <Sheet open={recipeSheetOpen} onOpenChange={setRecipeSheetOpen}>
+          <SheetContent side="right" className="w-full p-0 sm:max-w-md">
+            {recipeMenuItem && (
+              <div className="flex h-full flex-col">
+                <SheetHeader className="border-b p-6 pb-4">
+                  <SheetTitle className="flex items-center gap-2 text-lg">
+                    <Layers className="size-5 text-amber-600 dark:text-amber-400" />
+                    Recipe &amp; Ingredients
+                  </SheetTitle>
+                  <SheetDescription className="text-xs">
+                    Configure ingredient deduction for{" "}
+                    <strong className="text-foreground">
+                      {recipeMenuItem.name}
+                    </strong>
+                    . When customers or staff order this item, these supplies are
+                    automatically deducted from inventory.
+                  </SheetDescription>
+                </SheetHeader>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                  <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    💡 <strong>Auto-Deduction:</strong> Link the inventory ingredients used per serving. Orders placed at the counter or via customer QR will deduct from stock in real-time.
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold">
+                        Ingredients ({recipeIngredients.length})
+                      </Label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1 text-xs"
+                        onClick={() => {
+                          if (inventoryItems.length) {
+                            setRecipeIngredients((prev) => [
+                              ...prev,
+                              { inventoryItemId: inventoryItems[0].id, quantityUsed: 1 },
+                            ])
+                          }
+                        }}
+                        disabled={inventoryItems.length === 0}
+                      >
+                        <Plus className="size-3" />
+                        Add Ingredient
+                      </Button>
+                    </div>
+
+                    {loadingRecipe ? (
+                      <div className="flex items-center justify-center p-8">
+                        <Loader2 className="size-6 animate-spin text-amber-500" />
+                      </div>
+                    ) : inventoryItems.length === 0 ? (
+                      <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+                        No inventory ingredients found. Add items first in Admin &gt; Inventory.
+                      </div>
+                    ) : recipeIngredients.length === 0 ? (
+                      <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+                        No ingredients configured yet. Click &quot;Add Ingredient&quot; above to link stock.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {recipeIngredients.map((row, idx) => {
+                          const selectedItem = inventoryItems.find(
+                            (it) => it.id === row.inventoryItemId
+                          )
+                          return (
+                            <div
+                              key={idx}
+                              className="flex items-center gap-2 rounded-lg border bg-card p-2.5 shadow-2xs"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <Select
+                                  value={row.inventoryItemId}
+                                  onValueChange={(val) =>
+                                    setRecipeIngredients((prev) =>
+                                      prev.map((r, i) =>
+                                        i === idx ? { ...r, inventoryItemId: val } : r
+                                      )
+                                    )
+                                  }
+                                >
+                                  <SelectTrigger className="h-9 text-xs">
+                                    <SelectValue placeholder="Select item" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {inventoryItems.map((it) => (
+                                      <SelectItem
+                                        key={it.id}
+                                        value={it.id}
+                                        className="text-xs"
+                                      >
+                                        {it.name} ({it.unit})
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="w-24">
+                                <div className="relative">
+                                  <Input
+                                    type="number"
+                                    step="any"
+                                    min="0.001"
+                                    className="h-9 text-xs pr-7"
+                                    value={row.quantityUsed || ""}
+                                    onChange={(e) =>
+                                      setRecipeIngredients((prev) =>
+                                        prev.map((r, i) =>
+                                          i === idx
+                                            ? {
+                                                ...r,
+                                                quantityUsed:
+                                                  e.target.value === ""
+                                                    ? 0
+                                                    : Number(e.target.value),
+                                              }
+                                            : r
+                                        )
+                                      )
+                                    }
+                                    placeholder="Qty"
+                                  />
+                                  <span className="absolute right-2 top-2.5 text-[10px] text-muted-foreground">
+                                    {selectedItem?.unit ?? "pcs"}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 text-muted-foreground hover:text-destructive"
+                                onClick={() =>
+                                  setRecipeIngredients((prev) =>
+                                    prev.filter((_, i) => i !== idx)
+                                  )
+                                }
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <SheetFooter className="border-t p-4 sm:flex-row gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setRecipeSheetOpen(false)}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleSaveRecipe}
+                    disabled={savingRecipe}
+                    className="flex-1 bg-amber-500 font-semibold text-neutral-950 hover:bg-amber-400"
+                  >
+                    {savingRecipe ? "Saving..." : "Save Recipe"}
+                  </Button>
+                </SheetFooter>
+              </div>
+            )}
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   )

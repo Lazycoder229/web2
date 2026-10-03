@@ -9,6 +9,7 @@ class VoidController extends Controller
     private $voids;
     private $orders;
     private $users;
+    private $stockRestorer;
 
     public function __construct()
     {
@@ -18,6 +19,7 @@ class VoidController extends Controller
         $this->voids = $this->call->model('OrderVoidModel');
         $this->orders = $this->call->model('OrderModel');
         $this->users = $this->call->model('UserModel');
+        $this->stockRestorer = $this->call->library('OrderStockRestorer');
     }
 
     #[Get('/voids')]
@@ -55,10 +57,14 @@ class VoidController extends Controller
         if (($input['status'] ?? '') === 'approved') {
             $void = $this->voids->find($id);
             if ($void && !empty($void['order_id'])) {
-                $this->orders->query()->where('id', $void['order_id'])->update([
-                    'status' => 'cancelled',
-                    'updated_at' => date('Y-m-d H:i:s'),
-                ]);
+                $targetOrder = $this->orders->find($void['order_id']);
+                if ($targetOrder && $targetOrder['status'] !== 'cancelled') {
+                    $this->orders->query()->where('id', $void['order_id'])->update([
+                        'status' => 'cancelled',
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
+                    $this->stockRestorer->restore($void['order_id'], $input['approvedByStaffId'] ?? null, 'Order voided');
+                }
             }
         }
         $this->success(['void' => $this->format($this->voids->find($id))]);

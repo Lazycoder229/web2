@@ -67,9 +67,18 @@ import {
   deleteInventoryItemAction,
   fetchInventoryAccessAction,
   fetchInventory,
+  saveRecipeAction,
   updateInventoryItemAction,
 } from "@/lib/api/inventory"
 import type { InventoryAccess } from "@/lib/api/inventory"
+
+interface RecipeIngredient {
+  menuItemId: string
+  inventoryItemId: string
+  inventoryItemName: string
+  unit: string
+  quantityUsed: number
+}
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the new inventory DB tables
@@ -351,6 +360,16 @@ export default function InventoryPage() {
   const [menuStockForm, setMenuStockForm] =
     useState<MenuStockUpdateForm>(emptyMenuStockForm)
 
+  // ---- Recipe / Ingredients configuration state ----
+  const [recipes, setRecipes] = useState<RecipeIngredient[]>([])
+  const [recipeSheetOpen, setRecipeSheetOpen] = useState(false)
+  const [selectedMenuItemForRecipe, setSelectedMenuItemForRecipe] =
+    useState<MenuStockItem | null>(null)
+  const [currentRecipeItems, setCurrentRecipeItems] = useState<
+    { inventoryItemId: string; quantityUsed: number }[]
+  >([])
+  const [isSavingRecipe, setIsSavingRecipe] = useState(false)
+
   // ---- Stock logs state ----
   const [logs, setLogs] = useState<StockLog[]>([])
   const [logSearch, setLogSearch] = useState("")
@@ -457,6 +476,19 @@ export default function InventoryPage() {
         isAvailable: asBoolean(item.isAvailable ?? item.is_available),
       }))
     )
+    if (result.data.recipes) {
+      setRecipes(
+        result.data.recipes.map((r: any) => ({
+          menuItemId: String(r.menuItemId ?? r.menu_item_id),
+          inventoryItemId: String(r.inventoryItemId ?? r.inventory_item_id),
+          inventoryItemName: String(
+            r.inventoryItemName ?? r.inventory_item_name ?? "Ingredient"
+          ),
+          unit: String(r.unit ?? "pcs"),
+          quantityUsed: Number(r.quantityUsed ?? r.quantity_used ?? 1),
+        }))
+      )
+    }
     return true
   }
 
@@ -564,6 +596,75 @@ export default function InventoryPage() {
     setEditingItemId(null)
     setItemForm(emptyItemForm)
     setItemSheetOpen(true)
+  }
+
+  // ---- Recipe / Ingredients Handlers ----
+  function openRecipeSheet(item: MenuStockItem) {
+    setSelectedMenuItemForRecipe(item)
+    const existing = recipes
+      .filter((r) => r.menuItemId === item.id)
+      .map((r) => ({
+        inventoryItemId: r.inventoryItemId,
+        quantityUsed: r.quantityUsed,
+      }))
+    setCurrentRecipeItems(
+      existing.length > 0
+        ? existing
+        : items.length > 0
+          ? [{ inventoryItemId: items[0].id, quantityUsed: 1 }]
+          : []
+    )
+    setRecipeSheetOpen(true)
+  }
+
+  function addRecipeIngredientRow() {
+    if (!items.length) return
+    setCurrentRecipeItems((prev) => [
+      ...prev,
+      { inventoryItemId: items[0].id, quantityUsed: 1 },
+    ])
+  }
+
+  function removeRecipeIngredientRow(index: number) {
+    setCurrentRecipeItems((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function updateRecipeIngredientRow(
+    index: number,
+    field: "inventoryItemId" | "quantityUsed",
+    value: string | number
+  ) {
+    setCurrentRecipeItems((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, [field]: value } : row))
+    )
+  }
+
+  async function handleSaveRecipe() {
+    if (!selectedMenuItemForRecipe) return
+    const validRows = currentRecipeItems.filter(
+      (r) => r.inventoryItemId && Number(r.quantityUsed) > 0
+    )
+    setIsSavingRecipe(true)
+    try {
+      const res = await saveRecipeAction({
+        menuItemId: selectedMenuItemForRecipe.id,
+        ingredients: validRows.map((r) => ({
+          inventoryItemId: r.inventoryItemId,
+          quantityUsed: Number(r.quantityUsed),
+        })),
+      })
+      if (res.success) {
+        toast.success(`Recipe saved for ${selectedMenuItemForRecipe.name}`)
+        setRecipeSheetOpen(false)
+        await loadInventory()
+      } else {
+        toast.error(res.message || "Failed to save recipe")
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save recipe")
+    } finally {
+      setIsSavingRecipe(false)
+    }
   }
 
   function openEditItem(item: InventoryItem) {
@@ -1144,10 +1245,11 @@ export default function InventoryPage() {
             </CardHeader>
 
             <CardContent className="p-0">
-              <div className="hidden grid-cols-[minmax(0,1fr)_120px_140px] border-y bg-muted/30 px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase sm:grid sm:px-6">
+              <div className="hidden grid-cols-[minmax(0,1fr)_160px_110px_190px] border-y bg-muted/30 px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase sm:grid sm:px-6">
                 <span>Menu item</span>
+                <span>Linked recipe</span>
                 <span>Stock level</span>
-                <span className="text-center">Actions</span>
+                <span className="text-right">Actions</span>
               </div>
               {isCheckingInventoryAccess ? (
                 <InventoryRowsSkeleton />
@@ -1155,10 +1257,13 @@ export default function InventoryPage() {
                 <div className="divide-y">
                   {filteredMenuItems.map((item) => {
                     const level = menuStockLevel(item)
+                    const itemRecipes = recipes.filter(
+                      (r) => r.menuItemId === item.id
+                    )
                     return (
                       <div
                         key={item.id}
-                        className="grid gap-3 border-b p-4 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_120px_140px] sm:items-center sm:px-6"
+                        className="grid gap-3 border-b p-4 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_160px_110px_190px] sm:items-center sm:px-6"
                       >
                         <div className="flex min-w-0 items-center gap-3">
                           <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
@@ -1179,22 +1284,65 @@ export default function InventoryPage() {
                             </p>
                           </div>
                         </div>
+
+                        {/* Linked Recipe Ingredients column */}
+                        <div className="min-w-0">
+                          {itemRecipes.length === 0 ? (
+                            <span className="text-xs text-muted-foreground italic">
+                              No recipe linked
+                            </span>
+                          ) : (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                                {itemRecipes.length}{" "}
+                                {itemRecipes.length === 1
+                                  ? "ingredient"
+                                  : "ingredients"}
+                              </span>
+                              <span
+                                className="text-[11px] text-muted-foreground truncate max-w-[150px]"
+                                title={itemRecipes
+                                  .map(
+                                    (r) =>
+                                      `${r.quantityUsed} ${r.unit} ${r.inventoryItemName}`
+                                  )
+                                  .join(", ")}
+                              >
+                                {itemRecipes
+                                  .map((r) => r.inventoryItemName)
+                                  .join(", ")}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
                         <Badge
                           variant="outline"
                           className={`min-w-24 justify-center text-[11px] ${stockLevelClasses[level]}`}
                         >
                           {stockLevelLabels[level]}
                         </Badge>
-                        <div className="flex justify-center">
+                        <div className="flex items-center justify-end gap-1.5">
                           {inventoryAccess?.canManage && (
-                            <Button
-                              size="sm"
-                              className="h-9 gap-1.5 bg-amber-500 font-semibold text-neutral-950 hover:bg-amber-400"
-                              onClick={() => openUpdateMenuStock(item)}
-                            >
-                              <PackagePlus className="size-4" />
-                              Update stock
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 gap-1 border-amber-500/30 text-xs text-amber-800 hover:bg-amber-50 dark:text-amber-300"
+                                onClick={() => openRecipeSheet(item)}
+                              >
+                                <Layers className="size-3.5" />
+                                Recipe
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-8 gap-1 bg-amber-500 text-xs font-semibold text-neutral-950 hover:bg-amber-400"
+                                onClick={() => openUpdateMenuStock(item)}
+                              >
+                                <PackagePlus className="size-3.5" />
+                                Stock
+                              </Button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -2209,6 +2357,157 @@ export default function InventoryPage() {
                 </Button>
               </SheetFooter>
             </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* ============================================================== */}
+      {/* RECIPE / INGREDIENTS SHEET                                    */}
+      {/* ============================================================== */}
+      <Sheet open={recipeSheetOpen} onOpenChange={setRecipeSheetOpen}>
+        <SheetContent side="right" className="w-full p-0 sm:max-w-md">
+          {selectedMenuItemForRecipe && (
+            <div className="flex h-full flex-col">
+              <SheetHeader className="border-b p-6 pb-4">
+                <SheetTitle className="flex items-center gap-2 text-lg">
+                  <Layers className="size-5 text-amber-600 dark:text-amber-400" />
+                  Recipe &amp; Ingredients
+                </SheetTitle>
+                <SheetDescription className="text-xs">
+                  Configure required ingredients for{" "}
+                  <strong className="text-foreground">
+                    {selectedMenuItemForRecipe.name}
+                  </strong>
+                  . Whenever an order is placed, these quantities are
+                  automatically deducted from inventory.
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  💡 <strong>Tip:</strong> If 1 burger uses 1 bun and 0.15 kg beef, add both items below. Customer and cashier orders will deduct from these supplies automatically.
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold">
+                      Linked Ingredients ({currentRecipeItems.length})
+                    </Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1 text-xs"
+                      onClick={addRecipeIngredientRow}
+                      disabled={items.length === 0}
+                    >
+                      <Plus className="size-3" />
+                      Add Ingredient
+                    </Button>
+                  </div>
+
+                  {items.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+                      No inventory items found. Add ingredients or supplies first in the &quot;Ingredients &amp; supplies&quot; tab.
+                    </div>
+                  ) : currentRecipeItems.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+                      No ingredients linked yet. Click &quot;Add Ingredient&quot; above to connect stock to this menu item.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {currentRecipeItems.map((row, idx) => {
+                        const selectedItem = items.find(
+                          (it) => it.id === row.inventoryItemId
+                        )
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-2 rounded-lg border bg-card p-2.5 shadow-2xs"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <Select
+                                value={row.inventoryItemId}
+                                onValueChange={(val) =>
+                                  updateRecipeIngredientRow(
+                                    idx,
+                                    "inventoryItemId",
+                                    val
+                                  )
+                                }
+                              >
+                                <SelectTrigger className="h-9 text-xs">
+                                  <SelectValue placeholder="Select item" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {items.map((it) => (
+                                    <SelectItem key={it.id} value={it.id} className="text-xs">
+                                      {it.name} ({it.unit})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="w-24">
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  min="0.001"
+                                  className="h-9 text-xs pr-7"
+                                  value={row.quantityUsed || ""}
+                                  onChange={(e) =>
+                                    updateRecipeIngredientRow(
+                                      idx,
+                                      "quantityUsed",
+                                      e.target.value === "" ? 0 : Number(e.target.value)
+                                    )
+                                  }
+                                  placeholder="Qty"
+                                />
+                                <span className="absolute right-2 top-2.5 text-[10px] text-muted-foreground">
+                                  {selectedItem?.unit ?? "pcs"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-muted-foreground hover:text-destructive"
+                              onClick={() => removeRecipeIngredientRow(idx)}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <SheetFooter className="border-t p-4 sm:flex-row gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setRecipeSheetOpen(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSaveRecipe}
+                  disabled={isSavingRecipe}
+                  className="flex-1 bg-amber-500 font-semibold text-neutral-950 hover:bg-amber-400"
+                >
+                  {isSavingRecipe ? "Saving..." : "Save Recipe"}
+                </Button>
+              </SheetFooter>
+            </div>
           )}
         </SheetContent>
       </Sheet>

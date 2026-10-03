@@ -15,6 +15,10 @@ class Order extends Controller
     private $settings;
     private $loyalty;
     private $loyaltySettings;
+    private $inventoryItems;
+    private $inventoryLogs;
+    private $menuIngredients;
+    private $stockRestorer;
 
     public function __construct()
     {
@@ -30,6 +34,10 @@ class Order extends Controller
         $this->settings = $this->call->model('SystemSettingModel');
         $this->loyalty = $this->call->model('LoyaltyTransactionModel');
         $this->loyaltySettings = $this->call->model('LoyaltySettingModel');
+        $this->inventoryItems = $this->call->model('InventoryItemModel');
+        $this->inventoryLogs = $this->call->model('InventoryStockLogModel');
+        $this->menuIngredients = $this->call->model('MenuItemIngredientModel');
+        $this->stockRestorer = $this->call->library('OrderStockRestorer');
     }
 
     #[Get('/orders', middleware: ['admin_auth'])]
@@ -103,6 +111,31 @@ class Order extends Controller
             if (!$menu_item || $quantity < 1) {
                 $this->api->respond_error('Each order item must reference a valid menu item and quantity.', 422);
             }
+
+            // Verify direct menu item stock if not unlimited
+            if ($menu_item['stock_quantity'] !== null && (int) $menu_item['stock_quantity'] < $quantity) {
+                $this->api->respond_error("Insufficient stock for \"{$menu_item['name']}\". Only {$menu_item['stock_quantity']} remaining.", 422);
+            }
+
+            // Verify linked ingredient / supply stock if recipes are configured
+            $linkedIngredients = $this->menuIngredients->query()
+                ->where('menu_item_id', $menu_item['id'])
+                ->get_all() ?: [];
+
+            foreach ($linkedIngredients as $ing) {
+                $invItem = $this->inventoryItems->find($ing['inventory_item_id']);
+                if ($invItem) {
+                    $needed = round($quantity * (float) $ing['quantity_used'], 3);
+                    $invStock = (float) $invItem['stock_quantity'];
+                    if ($invStock < $needed) {
+                        $this->api->respond_error(
+                            "Insufficient ingredient stock for \"{$invItem['name']}\" ({$invStock} {$invItem['unit']} available, {$needed} needed) to prepare \"{$menu_item['name']}\".",
+                            422
+                        );
+                    }
+                }
+            }
+
             $price = (float) $menu_item['price'];
             $line_total = round($price * $quantity, 2);
             $subtotal += $line_total;
@@ -134,6 +167,11 @@ class Order extends Controller
         foreach ($normalized as $item) {
             $this->items->insert(array_merge(['id' => $this->uuid(), 'order_id' => $id], $item));
         }
+
+        // Deduct stock for menu items and linked ingredients, and record immutable stock logs
+        $staffOrActorId = $input['createdByStaffId'] ?? $customerId ?? null;
+        $this->deduct_stock_for_order($normalized, $order_number, $staffOrActorId);
+
         // Same for QR and cashier orders: the table is taken as soon as an order is placed.
         $this->occupy_table($input['tableId'] ?? null);
         $response = ['orderNumber' => $order_number, 'order' => $this->format_order($this->orders->find($id))];
@@ -152,6 +190,9 @@ class Order extends Controller
             $allowed = ['pending', 'preparing', 'ready', 'served', 'completed', 'cancelled'];
             if (!in_array($input['status'], $allowed, true)) {
                 $this->api->respond_error('Choose a valid order status.', 422);
+            }
+            if ($input['status'] === 'cancelled' && $order['status'] !== 'cancelled') {
+                $this->stockRestorer->restore($id, null, 'Order cancelled');
             }
             $this->orders->query()->where('id', $id)->update(['status' => $input['status'], 'updated_at' => date('Y-m-d H:i:s')]);
             $this->release_table_if_idle($order['table_id'] ?? null);
@@ -252,12 +293,14 @@ class Order extends Controller
                 $this->api->respond_error('Manager approval is required before this order can be voided.', 403);
             }
 
+            $staffId = $input['changedByStaffId'] ?? $order['created_by_staff_id'] ?? null;
+            $this->stockRestorer->restore($id, $staffId, 'Order cancelled');
+
             $existingVoid = $this->voids->query()
                 ->where('order_id', $id)
                 ->where('status', 'approved')
                 ->get_all();
             if (!$existingVoid) {
-                $staffId = $input['changedByStaffId'] ?? $order['created_by_staff_id'] ?? null;
                 $this->voids->insert([
                     'id' => $this->uuid(),
                     'order_id' => $id,
@@ -390,6 +433,80 @@ class Order extends Controller
         $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
         $hex = bin2hex($bytes);
         return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4) . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20);
+    }
+
+    /**
+     * Deduct stock for menu items and linked recipe ingredients upon order creation,
+     * writing immutable stock logs for every deduction.
+     */
+    private function deduct_stock_for_order(array $items, string $orderNumber, ?string $staffId)
+    {
+        foreach ($items as $item) {
+            $menuItemId = $item['menu_item_id'];
+            $quantity = (int) $item['quantity'];
+            $menuItem = $this->menu->find($menuItemId);
+            if (!$menuItem) {
+                continue;
+            }
+
+            // 1. Deduct direct menu item stock if not unlimited
+            if ($menuItem['stock_quantity'] !== null) {
+                $prevStock = (int) $menuItem['stock_quantity'];
+                $newStock = max(0, $prevStock - $quantity);
+
+                $this->menu->query()->where('id', $menuItemId)->update([
+                    'stock_quantity' => $newStock,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+
+                $this->inventoryLogs->insert([
+                    'id' => $this->uuid(),
+                    'item_type' => 'menu_item',
+                    'inventory_item_id' => null,
+                    'menu_item_id' => $menuItemId,
+                    'type' => 'consumed',
+                    'quantity_change' => -$quantity,
+                    'quantity_after' => $newStock,
+                    'note' => "Order #{$orderNumber}",
+                    'performed_by_staff_id' => $staffId,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+
+            // 2. Deduct linked ingredients / supplies stock
+            $linkedIngredients = $this->menuIngredients->query()
+                ->where('menu_item_id', $menuItemId)
+                ->get_all() ?: [];
+
+            foreach ($linkedIngredients as $ing) {
+                $invItem = $this->inventoryItems->find($ing['inventory_item_id']);
+                if (!$invItem) {
+                    continue;
+                }
+
+                $qtyUsed = round($quantity * (float) $ing['quantity_used'], 3);
+                $prevInvStock = (float) $invItem['stock_quantity'];
+                $newInvStock = max(0, round($prevInvStock - $qtyUsed, 3));
+
+                $this->inventoryItems->query()->where('id', $invItem['id'])->update([
+                    'stock_quantity' => $newInvStock,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+
+                $this->inventoryLogs->insert([
+                    'id' => $this->uuid(),
+                    'item_type' => 'ingredient',
+                    'inventory_item_id' => $invItem['id'],
+                    'menu_item_id' => null,
+                    'type' => 'consumed',
+                    'quantity_change' => -$qtyUsed,
+                    'quantity_after' => $newInvStock,
+                    'note' => "Order #{$orderNumber} ({$quantity}x {$menuItem['name']})",
+                    'performed_by_staff_id' => $staffId,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+        }
     }
 
     private function success($data, $status = 200)
