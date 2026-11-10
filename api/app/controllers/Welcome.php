@@ -1,0 +1,14 @@
+<?php
+
+defined('PREVENT_DIRECT_ACCESS') or exit('No direct script access allowed');
+
+
+#[Route('/')]
+class Welcome extends Controller
+{
+    #[Get('/')]
+    public function index()
+    {
+        $this->call->view('welcome_page');
+    }
+}

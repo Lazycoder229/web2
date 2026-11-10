@@ -1,0 +1,13 @@
+# Tool caches
+.php-cs-fixer.cache
+
+# Nested repository backups
+.git-backup/
+
+# Local environment configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example

@@ -1,0 +1,25 @@
+{
+  "id": "/admin",
+  "name": "PRIME POS Admin",
+  "short_name": "PRIME Admin",
+  "description": "Restaurant operations management",
+  "start_url": "/admin/login",
+  "scope": "/admin",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "/icons/pards-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/pards-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
