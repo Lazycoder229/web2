@@ -49,6 +49,10 @@ import {
 import type { DashboardData, LiveOrder, TopItem } from "@/types/admin/dashboard"
 
 import { fetchDashboardData } from "@/lib/api/dashboard"
+import { fetchOrders } from "@/lib/api/orders"
+import { getSavedAdminProfile } from "@/lib/api/admin-auth"
+import type { Order } from "@/types/admin/orders"
+import { useRealtimeEvents } from "@/lib/api/realtime"
 
 const peso = new Intl.NumberFormat("en-PH", {
   style: "currency",
@@ -308,7 +312,7 @@ function TopSelling({
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 
-export default function AdminDashboardPage() {
+function AdminDashboardContent() {
   const [data, setData] = React.useState<DashboardData | null>(null)
   const [error, setError] = React.useState(false)
   const [isRefreshing, setIsRefreshing] = React.useState(false)
@@ -328,11 +332,14 @@ export default function AdminDashboardPage() {
       })
   }, [])
 
+  const realtimeConnected = useRealtimeEvents(["orders.changed"], () => load())
+
   React.useEffect(() => {
     load()
+    if (realtimeConnected) return
     const timer = setInterval(load, 30_000)
     return () => clearInterval(timer)
-  }, [load])
+  }, [load, realtimeConnected])
 
   const loading = data === null && !error
 
@@ -479,4 +486,98 @@ export default function AdminDashboardPage() {
       </div>
     </div>
   )
+}
+
+type CashierOrder = Order & {
+  paymentStatus?: string | null
+  table?: string
+  time?: string | null
+}
+
+function CashierDashboard() {
+  const [orders, setOrders] = React.useState<CashierOrder[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState("")
+  const [refreshing, setRefreshing] = React.useState(false)
+
+  const load = React.useCallback(async () => {
+    setRefreshing(true)
+    const result = await fetchOrders()
+    if (result.success && Array.isArray(result.data)) {
+      setOrders(result.data as CashierOrder[])
+      setError("")
+    } else {
+      setError(result.error ?? "Could not load orders.")
+    }
+    setLoading(false)
+    setRefreshing(false)
+  }, [])
+
+  const realtimeConnected = useRealtimeEvents(["orders.changed"], () => void load())
+
+  React.useEffect(() => {
+    void load()
+    if (realtimeConnected) return
+    const timer = setInterval(() => void load(), 30_000)
+    return () => clearInterval(timer)
+  }, [load, realtimeConnected])
+
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+  const activeOrders = orders.filter((order) => !["completed", "cancelled"].includes(order.status))
+  const paidOrders = orders.filter((order) => order.paymentStatus === "paid" || order.status === "completed")
+  const salesToday = paidOrders
+    .filter((order) => String(order.createdAt ?? order.time ?? "").slice(0, 10) === today)
+    .reduce((total, order) => total + Number(order.total ?? 0), 0)
+  const totalSales = paidOrders.reduce((total, order) => total + Number(order.total ?? 0), 0)
+
+  return (
+    <div className="w-full min-w-0 space-y-5 pb-16 sm:pb-8">
+      <header className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Cashier Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Current orders and sales.</p>
+        </div>
+        <button type="button" onClick={() => void load()} disabled={refreshing} className="inline-flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">
+          <RefreshCw className={cn("size-4", refreshing && "animate-spin")} /> Refresh
+        </button>
+      </header>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <KpiCard loading={loading} title="Current Orders" icon={ShoppingBag} value={String(activeOrders.length)} note="Open orders" />
+        <KpiCard loading={loading} title="Current Sales" icon={CreditCard} value={peso.format(salesToday)} note="Paid sales today" positive />
+        <KpiCard loading={loading} title="Total Sales" icon={CreditCard} value={peso.format(totalSales)} note="All-time paid sales" positive />
+      </div>
+
+      <Card className="border bg-card shadow-xs">
+        <CardHeader className="flex flex-row items-center justify-between p-4 sm:p-6">
+          <div><CardTitle className="text-lg">Current Orders</CardTitle><CardDescription>Orders in progress</CardDescription></div>
+          <Link href="/admin/orders" className="text-sm font-semibold text-orange-600 hover:underline">View all</Link>
+        </CardHeader>
+        <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+          {error ? <p role="alert" className="py-8 text-center text-sm text-destructive">{error}</p> : loading ? <TableSkeleton /> : (
+            <Table>
+              <TableHeader><TableRow><TableHead>Order</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {activeOrders.length === 0 ? <TableRow><TableCell colSpan={4} className="h-24 text-center text-muted-foreground">No current orders.</TableCell></TableRow> : activeOrders.slice(0, 12).map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                    <TableCell>{order.orderType === "qr" ? "QR / Table" : "Counter"}</TableCell>
+                    <TableCell><Badge variant="outline" className="capitalize">{order.status}</Badge></TableCell>
+                    <TableCell className="text-right">{peso.format(Number(order.total ?? 0))}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+export default function AdminDashboardPage() {
+  return getSavedAdminProfile()?.role?.toLowerCase() === "cashier"
+    ? <CashierDashboard />
+    : <AdminDashboardContent />
 }

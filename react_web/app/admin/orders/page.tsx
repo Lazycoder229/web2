@@ -75,6 +75,7 @@ import { fetchTables } from "@/lib/api/tables"
 import { fetchSystemSettings } from "@/lib/api/settings"
 import { fetchDiscounts } from "@/lib/api/discounts"
 import { createVoidAction } from "@/lib/api/voids"
+import { useRealtimeEvents } from "@/lib/api/realtime"
 import {
   DigitalReceipt,
   type DigitalReceiptStoreInfo,
@@ -476,7 +477,7 @@ export default function OrdersPage() {
     await Promise.all([ordersTask, catalogTask, tablesTask, settingsTask, discountsTask])
   }, [])
 
-  function refreshOrdersInBackground() {
+  const refreshOrdersInBackground = useCallback(() => {
     void fetchOrders()
       .then((result) => {
         if (result.success && result.data) setOrders(result.data as Order[])
@@ -484,14 +485,29 @@ export default function OrdersPage() {
       .catch((err) => {
         console.error("Failed to refresh orders after payment:", err)
       })
-  }
+  }, [])
+
+  const realtimeConnected = useRealtimeEvents(
+    ["orders.changed", "stock.changed"],
+    (event) => {
+      refreshOrdersInBackground()
+      if (event.type === "stock.changed") {
+        void getMenuDataAction().then((menuRes) => {
+          if (!menuRes.success || !menuRes.data) return
+          setMenuItemsData(menuRes.data.items as MenuItemData[])
+          setCategoriesData(menuRes.data.categories as CategoryData[])
+        })
+      }
+    },
+  )
 
   useEffect(() => {
     loadData()
   }, [loadData])
 
-  // Refresh order data without reloading the catalog, and avoid overlapping polls.
+  // Poll while WebSocket is unavailable; realtime updates take over when connected.
   useEffect(() => {
+    if (realtimeConnected) return
     let isRefreshing = false
     const interval = window.setInterval(async () => {
       if (isRefreshing) return
@@ -513,7 +529,7 @@ export default function OrdersPage() {
       }
     }, 15000)
     return () => window.clearInterval(interval)
-  }, [])
+  }, [realtimeConnected])
 
   // ---------------------------------------------------------------------------
   // Derived data: category map for menu items in POS grid

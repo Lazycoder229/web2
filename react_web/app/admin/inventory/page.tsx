@@ -268,7 +268,7 @@ const itemTypeClasses: Record<StockItemType, string> = {
 
 const pageTabs = [
   { value: "ingredients", label: "Ingredients & supplies" },
-  { value: "menu", label: "Menu item stock" },
+  { value: "menu", label: "Sellable menu stock" },
   { value: "logs", label: "Stock log" },
 ]
 
@@ -484,7 +484,7 @@ export default function InventoryPage() {
             r.inventoryItemName ?? r.inventory_item_name ?? "Ingredient"
           ),
           unit: String(r.unit ?? "pcs"),
-          quantityUsed: Number(r.quantityUsed ?? r.quantity_used ?? 1),
+          quantityUsed: Number(r.quantityUsed ?? r.quantity_used ?? 0),
         }))
       )
     }
@@ -610,7 +610,7 @@ export default function InventoryPage() {
       existing.length > 0
         ? existing
         : items.length > 0
-          ? [{ inventoryItemId: items[0].id, quantityUsed: 1 }]
+          ? [{ inventoryItemId: items[0].id, quantityUsed: 0 }]
           : []
     )
     setRecipeSheetOpen(true)
@@ -620,7 +620,7 @@ export default function InventoryPage() {
     if (!items.length) return
     setCurrentRecipeItems((prev) => [
       ...prev,
-      { inventoryItemId: items[0].id, quantityUsed: 1 },
+      { inventoryItemId: items[0].id, quantityUsed: 0 },
     ])
   }
 
@@ -640,6 +640,10 @@ export default function InventoryPage() {
 
   async function handleSaveRecipe() {
     if (!selectedMenuItemForRecipe) return
+    if (currentRecipeItems.some((row) => !row.inventoryItemId || Number(row.quantityUsed) <= 0)) {
+      toast.error("Enter the amount used per menu item, or remove the unused ingredient row.")
+      return
+    }
     const validRows = currentRecipeItems.filter(
       (r) => r.inventoryItemId && Number(r.quantityUsed) > 0
     )
@@ -931,7 +935,7 @@ export default function InventoryPage() {
               </h1>
             </div>
             <p className="text-xs text-muted-foreground sm:text-sm">
-              Track ingredients, supplies, and menu item stock levels.
+              Track back-of-house ingredients and supplies. Sellable products are managed in Menu Items and sold through POS.
             </p>
           </div>
           {pageTab === "ingredients" && inventoryAccess?.canManage && (
@@ -940,7 +944,7 @@ export default function InventoryPage() {
               className="h-11 w-full bg-amber-500 font-semibold text-neutral-950 shadow-sm hover:bg-amber-400 sm:h-10 sm:w-auto"
             >
               <Plus className="mr-2 size-4" />
-              Add item
+              Add ingredient / supply
             </Button>
           )}
         </div>
@@ -1195,15 +1199,10 @@ export default function InventoryPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle className="text-base font-bold sm:text-lg">
-                    Menu item stock
+                    Sellable menu stock
                   </CardTitle>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Based on{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                      menu_items.stock_quantity
-                    </code>
-                    . Track real-time inventory and availability for prepared
-                    foods and drinks.
+                    These are the products customers buy in POS. Manage names and prices in Menu Items; adjust prepared-item counts here only when you track them separately from recipes.
                   </p>
                 </div>
                 <div className="relative w-full sm:w-64">
@@ -1534,18 +1533,18 @@ export default function InventoryPage() {
         <SheetContent side="right" className="w-full p-0 sm:max-w-md">
           <SheetHeader className="border-b p-4 text-left sm:p-6">
             <SheetTitle>
-              {editingItemId ? "Edit item" : "New inventory item"}
+              {editingItemId ? "Edit ingredient or supply" : "Add ingredient or supply"}
             </SheetTitle>
             <SheetDescription>
               {editingItemId
                 ? "Update the item details and stock settings."
-                : "Add an ingredient or supply to track."}
+                : "Back-of-house stock used to prepare menu products. This will not appear as a product customers can buy; add sellable products in Menu Items."}
             </SheetDescription>
           </SheetHeader>
 
           <div className="space-y-4 overflow-y-auto p-4 sm:p-6">
             <div className="grid gap-1.5">
-              <Label htmlFor="item-name">Item name</Label>
+              <Label htmlFor="item-name">Ingredient or supply name</Label>
               <Input
                 id="item-name"
                 value={itemForm.name}
@@ -2383,7 +2382,7 @@ export default function InventoryPage() {
 
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
-                  💡 <strong>Tip:</strong> If 1 burger uses 1 bun and 0.15 kg beef, add both items below. Customer and cashier orders will deduct from these supplies automatically.
+                  💡 <strong>Amount per menu item:</strong> Enter only the quantity used for one serving. For example, if 1 kg of salt lasts 200 servings, enter 0.005 kg here. Each sale deducts only this amount multiplied by the quantity sold.
                 </div>
 
                 <div className="space-y-3">
@@ -2462,7 +2461,7 @@ export default function InventoryPage() {
                                       e.target.value === "" ? 0 : Number(e.target.value)
                                     )
                                   }
-                                  placeholder="Qty"
+                                  placeholder="Per item"
                                 />
                                 <span className="absolute right-2 top-2.5 text-[10px] text-muted-foreground">
                                   {selectedItem?.unit ?? "pcs"}

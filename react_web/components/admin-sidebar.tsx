@@ -111,6 +111,8 @@ export function AdminSidebar({ profile }: { profile: AdminProfile | null }) {
   const router = useRouter()
   const navigate = useNavigate()
   const { isMobile, setOpenMobile } = useSidebar()
+  const isCashier = profile?.role?.toLowerCase() === "cashier"
+  const cashierUrls = new Set(["/admin", "/admin/menu", "/admin/orders", "/admin/reservations", "/admin/inventory"])
 
   const handleNavClick = () => {
     if (isMobile) {
@@ -129,12 +131,17 @@ export function AdminSidebar({ profile }: { profile: AdminProfile | null }) {
         </div>
       </SidebarHeader>
       <SidebarContent className="pt-2">
-        {groups.map((group) => (
+        {groups.map((group) => {
+          const items = isCashier
+            ? group.items.filter((item) => cashierUrls.has(item.url))
+            : group.items
+          if (!items.length) return null
+          return (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu className="gap-1.5">
-                {group.items.map((item) => (
+                {items.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       className={menuButtonClass}
@@ -152,7 +159,8 @@ export function AdminSidebar({ profile }: { profile: AdminProfile | null }) {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-        ))}
+          )
+        })}
       </SidebarContent>
 
       <SidebarFooter>

@@ -12,6 +12,7 @@ class Inventory extends Controller
     private $menu;
     private $menuCategories;
     private $ingredients;
+    private $realtime;
 
     public function __construct()
     {
@@ -24,6 +25,7 @@ class Inventory extends Controller
         $this->menu = $this->call->model('MenuModel');
         $this->menuCategories = $this->call->model('CategoryModel');
         $this->ingredients = $this->call->model('MenuItemIngredientModel');
+        $this->realtime = $this->call->library('RealtimePublisher');
     }
 
     #[Get('/inventory/access')]
@@ -211,6 +213,7 @@ class Inventory extends Controller
             'created_at' => date('Y-m-d H:i:s'),
         ]);
 
+        $this->realtime->publish('stock.changed');
         $this->success(['item' => $this->items->find($item['id'])]);
     }
 
@@ -255,6 +258,7 @@ class Inventory extends Controller
             'created_at' => date('Y-m-d H:i:s'),
         ]);
 
+        $this->realtime->publish('stock.changed');
         $this->success(['item' => $this->menu->find($menuItem['id'])]);
     }
 

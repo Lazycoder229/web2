@@ -9,6 +9,7 @@ class Menu extends Controller
     private $categories;
     private $items;
     private $stockLogs;
+    private $realtime;
 
     public function __construct()
     {
@@ -18,6 +19,7 @@ class Menu extends Controller
         $this->categories = $this->call->model('CategoryModel');
         $this->items = $this->call->model('MenuModel');
         $this->stockLogs = $this->call->model('InventoryStockLogModel');
+        $this->realtime = $this->call->library('RealtimePublisher');
     }
 
     #[Get('/menu')]
@@ -65,6 +67,7 @@ class Menu extends Controller
             ]);
         }
 
+        $this->realtime->publish('stock.changed');
         $this->success(['item' => $this->format_item($this->items->find($id))], 201);
     }
 
@@ -103,6 +106,7 @@ class Menu extends Controller
         }
 
         $this->items->query()->where('id', $id)->update(array_merge($changes, ['updated_at' => date('Y-m-d H:i:s')]));
+        $this->realtime->publish('stock.changed');
         $this->success(['item' => $this->format_item($this->items->find($id))]);
     }
 
@@ -113,6 +117,7 @@ class Menu extends Controller
             $this->api->respond_error('Menu item not found.', 404);
         }
         $this->items->query()->where('id', $id)->delete();
+        $this->realtime->publish('stock.changed');
         $this->success(['id' => $id]);
     }
 

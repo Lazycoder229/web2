@@ -20,6 +20,7 @@ class Order extends Controller
     private $menuIngredients;
     private $stockRestorer;
     private $pricing;
+    private $realtime;
 
     public function __construct()
     {
@@ -40,6 +41,7 @@ class Order extends Controller
         $this->menuIngredients = $this->call->model('MenuItemIngredientModel');
         $this->stockRestorer = $this->call->library('OrderStockRestorer');
         $this->pricing = $this->call->library('OrderPricing');
+        $this->realtime = $this->call->library('RealtimePublisher');
     }
 
     #[Get('/orders', middleware: ['admin_auth'])]
@@ -175,6 +177,8 @@ class Order extends Controller
 
         $id = $requestId ?? $this->uuid();
         $order_number = 'ORD-' . date('ymdHis') . '-' . strtoupper(substr(str_replace('-', '', $id), 0, 4));
+        $db = lava_instance()->db;
+        $db->transaction();
         try {
             $created = $this->orders->insert([
                 'id' => $id,
@@ -195,11 +199,32 @@ class Order extends Controller
                 'payment_reference' => $paymentReference,
                 'created_by_staff_id' => $input['createdByStaffId'] ?? null,
             ]);
+            if ($created === false) {
+                throw new RuntimeException('Could not create order.');
+            }
+
+            foreach ($normalized as $item) {
+                $this->items->insert(array_merge(['id' => $this->uuid(), 'order_id' => $id], $item));
+            }
+
+            $staffOrActorId = $input['createdByStaffId'] ?? null;
+            $this->pricing->record($id, $pricing, $staffOrActorId);
+
+            // Reserve stock under row locks inside the same transaction as the order.
+            // Concurrent checkouts then serialize on the stock rows; only the first
+            // order can consume the final available unit.
+            $staffOrActorId = $staffOrActorId ?? $customerId ?? null;
+            $stockError = $this->deduct_stock_for_order($normalized, $order_number, $staffOrActorId);
+            if ($stockError !== null) {
+                $db->roll_back();
+                $this->api->respond_error($stockError, 409);
+            }
+
+            // Same for QR and cashier orders: the table is taken as soon as an order is placed.
+            $this->occupy_table($input['tableId'] ?? null);
+            $db->commit();
         } catch (Throwable $error) {
-            // A duplicate primary key is expected when concurrent retries race.
-            $created = false;
-        }
-        if ($created === false) {
+            $db->roll_back();
             // A concurrent retry may have inserted this request first.
             $existingOrder = $this->orders->find($id);
             if ($requestId && $existingOrder && ($existingOrder['customer_id'] ?? null) === $customerId && ($existingOrder['order_type'] ?? '') === 'qr') {
@@ -210,19 +235,8 @@ class Order extends Controller
             }
             $this->api->respond_error('Could not create order.', 500);
         }
-        foreach ($normalized as $item) {
-            $this->items->insert(array_merge(['id' => $this->uuid(), 'order_id' => $id], $item));
-        }
-
-        $staffOrActorId = $input['createdByStaffId'] ?? null;
-        $this->pricing->record($id, $pricing, $staffOrActorId);
-
-        // Deduct stock for menu items and linked ingredients, and record immutable stock logs
-        $staffOrActorId = $staffOrActorId ?? $customerId ?? null;
-        $this->deduct_stock_for_order($normalized, $order_number, $staffOrActorId);
-
-        // Same for QR and cashier orders: the table is taken as soon as an order is placed.
-        $this->occupy_table($input['tableId'] ?? null);
+        $this->realtime->publish('orders.changed');
+        $this->realtime->publish('stock.changed');
         $response = ['orderNumber' => $order_number, 'order' => $this->format_order($this->orders->find($id))];
         $this->success($response, 201);
     }
@@ -274,6 +288,10 @@ class Order extends Controller
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
         }
+        $this->realtime->publish('orders.changed');
+        if (($input['status'] ?? null) === 'cancelled' && ($order['status'] ?? '') !== 'cancelled') {
+            $this->realtime->publish('stock.changed');
+        }
         $this->success(['order' => $this->format_order($this->orders->find($id))]);
     }
 
@@ -294,6 +312,7 @@ class Order extends Controller
         ]);
         $updatedOrder = $this->orders->find($id);
         $this->loyalty->award_for_paid_order($updatedOrder, $this->customers, $this->loyaltySettings);
+        $this->realtime->publish('orders.changed');
         $this->success(['order' => $this->format_order($updatedOrder)]);
     }
 
@@ -319,6 +338,7 @@ class Order extends Controller
             'admin_hidden_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+        $this->realtime->publish('orders.changed');
         $this->success(['id' => $id]);
     }
 
@@ -371,6 +391,11 @@ class Order extends Controller
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
         $this->release_table_if_idle($order['table_id'] ?? null);
+
+        $this->realtime->publish('orders.changed');
+        if ($status === 'cancelled' && ($order['status'] ?? '') !== 'cancelled') {
+            $this->realtime->publish('stock.changed');
+        }
 
         $this->success(['order' => $this->format_order($this->orders->find($id))]);
     }
@@ -491,74 +516,107 @@ class Order extends Controller
      * Deduct stock for menu items and linked recipe ingredients upon order creation,
      * writing immutable stock logs for every deduction.
      */
-    private function deduct_stock_for_order(array $items, string $orderNumber, ?string $staffId)
+    private function deduct_stock_for_order(array $items, string $orderNumber, ?string $staffId): ?string
     {
+        $menuRequirements = [];
+        $ingredientRequirements = [];
         foreach ($items as $item) {
-            $menuItemId = $item['menu_item_id'];
+            $menuItemId = (string) $item['menu_item_id'];
             $quantity = (int) $item['quantity'];
-            $menuItem = $this->menu->find($menuItemId);
-            if (!$menuItem) {
-                continue;
-            }
+            $menuRequirements[$menuItemId] = ($menuRequirements[$menuItemId] ?? 0) + $quantity;
 
-            // 1. Deduct direct menu item stock if not unlimited
-            if ($menuItem['stock_quantity'] !== null) {
-                $prevStock = (int) $menuItem['stock_quantity'];
-                $newStock = max(0, $prevStock - $quantity);
-
-                $this->menu->query()->where('id', $menuItemId)->update([
-                    'stock_quantity' => $newStock,
-                    'updated_at' => date('Y-m-d H:i:s'),
-                ]);
-
-                $this->inventoryLogs->insert([
-                    'id' => $this->uuid(),
-                    'item_type' => 'menu_item',
-                    'inventory_item_id' => null,
-                    'menu_item_id' => $menuItemId,
-                    'type' => 'consumed',
-                    'quantity_change' => -$quantity,
-                    'quantity_after' => $newStock,
-                    'note' => "Order #{$orderNumber}",
-                    'performed_by_staff_id' => $staffId,
-                    'created_at' => date('Y-m-d H:i:s'),
-                ]);
-            }
-
-            // 2. Deduct linked ingredients / supplies stock
             $linkedIngredients = $this->menuIngredients->query()
                 ->where('menu_item_id', $menuItemId)
                 ->get_all() ?: [];
-
-            foreach ($linkedIngredients as $ing) {
-                $invItem = $this->inventoryItems->find($ing['inventory_item_id']);
-                if (!$invItem) {
-                    continue;
+            foreach ($linkedIngredients as $ingredient) {
+                $inventoryItemId = (string) $ingredient['inventory_item_id'];
+                $needed = round($quantity * (float) $ingredient['quantity_used'], 3);
+                if (!isset($ingredientRequirements[$inventoryItemId])) {
+                    $ingredientRequirements[$inventoryItemId] = ['quantity' => 0, 'menuNames' => []];
                 }
-
-                $qtyUsed = round($quantity * (float) $ing['quantity_used'], 3);
-                $prevInvStock = (float) $invItem['stock_quantity'];
-                $newInvStock = max(0, round($prevInvStock - $qtyUsed, 3));
-
-                $this->inventoryItems->query()->where('id', $invItem['id'])->update([
-                    'stock_quantity' => $newInvStock,
-                    'updated_at' => date('Y-m-d H:i:s'),
-                ]);
-
-                $this->inventoryLogs->insert([
-                    'id' => $this->uuid(),
-                    'item_type' => 'ingredient',
-                    'inventory_item_id' => $invItem['id'],
-                    'menu_item_id' => null,
-                    'type' => 'consumed',
-                    'quantity_change' => -$qtyUsed,
-                    'quantity_after' => $newInvStock,
-                    'note' => "Order #{$orderNumber} ({$quantity}x {$menuItem['name']})",
-                    'performed_by_staff_id' => $staffId,
-                    'created_at' => date('Y-m-d H:i:s'),
-                ]);
+                $ingredientRequirements[$inventoryItemId]['quantity'] += $needed;
+                $menuItem = $this->menu->find($menuItemId);
+                $ingredientRequirements[$inventoryItemId]['menuNames'][] = $menuItem['name'] ?? 'menu item';
             }
         }
+
+        // Lock stock rows in a stable order to serialize competing checkouts and
+        // reduce deadlocks when an order consumes more than one item.
+        ksort($menuRequirements, SORT_STRING);
+        ksort($ingredientRequirements, SORT_STRING);
+        $db = lava_instance()->db;
+
+        foreach ($menuRequirements as $menuItemId => $quantity) {
+            $menuItem = $db->raw(
+                'SELECT id, name, stock_quantity FROM menu_items WHERE id = ? FOR UPDATE',
+                [$menuItemId]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$menuItem) {
+                return 'A menu item in your cart is no longer available. Please refresh and try again.';
+            }
+
+            // NULL means unlimited stock in this application.
+            if ($menuItem['stock_quantity'] === null) continue;
+            $previousStock = (int) $menuItem['stock_quantity'];
+            if ($previousStock < $quantity) {
+                return "Sorry, \"{$menuItem['name']}\" just sold out. Only {$previousStock} remaining; update your cart and try again.";
+            }
+
+            $newStock = $previousStock - $quantity;
+            $db->raw(
+                'UPDATE menu_items SET stock_quantity = ?, updated_at = ? WHERE id = ?',
+                [$newStock, date('Y-m-d H:i:s'), $menuItemId]
+            );
+            $this->inventoryLogs->insert([
+                'id' => $this->uuid(),
+                'item_type' => 'menu_item',
+                'inventory_item_id' => null,
+                'menu_item_id' => $menuItemId,
+                'type' => 'consumed',
+                'quantity_change' => -$quantity,
+                'quantity_after' => $newStock,
+                'note' => "Order #{$orderNumber}",
+                'performed_by_staff_id' => $staffId,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        foreach ($ingredientRequirements as $inventoryItemId => $requirement) {
+            $inventoryItem = $db->raw(
+                'SELECT id, name, unit, stock_quantity FROM inventory_items WHERE id = ? FOR UPDATE',
+                [$inventoryItemId]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$inventoryItem) {
+                return 'An ingredient in this order is no longer available. Please refresh and try again.';
+            }
+
+            $needed = round((float) $requirement['quantity'], 3);
+            $menuNames = implode(', ', array_unique($requirement['menuNames']));
+            $previousStock = (float) $inventoryItem['stock_quantity'];
+            if ($previousStock < $needed) {
+                return "Sorry, \"{$inventoryItem['name']}\" needed for {$menuNames} just ran out. Please update your cart and try again.";
+            }
+
+            $newStock = round($previousStock - $needed, 3);
+            $db->raw(
+                'UPDATE inventory_items SET stock_quantity = ?, updated_at = ? WHERE id = ?',
+                [number_format($newStock, 3, '.', ''), date('Y-m-d H:i:s'), $inventoryItemId]
+            );
+            $this->inventoryLogs->insert([
+                'id' => $this->uuid(),
+                'item_type' => 'ingredient',
+                'inventory_item_id' => $inventoryItemId,
+                'menu_item_id' => null,
+                'type' => 'consumed',
+                'quantity_change' => -$needed,
+                'quantity_after' => $newStock,
+                'note' => "Order #{$orderNumber} (recipe stock for {$menuNames})",
+                'performed_by_staff_id' => $staffId,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        return null;
     }
 
     private function success($data, $status = 200)

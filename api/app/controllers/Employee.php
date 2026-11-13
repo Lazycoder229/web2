@@ -78,8 +78,9 @@ class Employee extends Controller
             $this->api->respond_error('That RFID card is already assigned to an employee.', 409);
         }
 
-        $roles = $this->call->model('RoleModel')->query()->where('name', 'Staff')->get_all() ?: [];
-        if (!$roles) $this->api->respond_error('The Staff role is missing. Run the RBAC seed migration first.', 500);
+        $accountRoleName = strcasecmp(trim((string) ($i['department'] ?? '')), 'Cashier') === 0 ? 'Cashier' : 'Staff';
+        $roles = $this->call->model('RoleModel')->query()->where('name', $accountRoleName)->get_all() ?: [];
+        if (!$roles) $this->api->respond_error('The ' . $accountRoleName . ' role is missing. Run the database migrations first.', 500);
 
         $userId = $this->uuid();
         $employeeId = $this->uuid();

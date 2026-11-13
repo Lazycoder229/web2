@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   AlertCircle,
   Building2,
+  CalendarCheck,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -227,6 +228,19 @@ const PERMISSION_MODULES: PermissionModuleGroup[] = [
         code: "inventory:waste",
         name: "Log Spoilage & Waste",
         description: "Record kitchen spoilage and expired supplies",
+      },
+    ],
+  },
+  {
+    module: "reservations",
+    label: "Reservations",
+    icon: CalendarCheck,
+    permissions: [
+      {
+        id: "p-res-view",
+        code: "reservations:view",
+        name: "View & Manage Reservations",
+        description: "Review customer bookings and update their status",
       },
     ],
   },

@@ -544,7 +544,7 @@ export default function MenuPage() {
               )}
             </div>
             <p className="truncate text-xs text-muted-foreground sm:text-sm">
-              Manage categories, pricing, stock, and availability.
+              Manage products customers can buy at the POS: categories, prices, availability, and recipe-based stock deduction.
             </p>
           </div>
 

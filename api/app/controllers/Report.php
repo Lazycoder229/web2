@@ -152,9 +152,7 @@ class Report extends Controller
                     'status' => $statusMap[$status] ?? ucfirst($status),
                 ];
 
-                if (count($liveOrders) >= 10) {
-                    break;
-                }
+                if (count($liveOrders) >= 10) break;
             }
         }
 

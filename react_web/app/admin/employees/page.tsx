@@ -62,6 +62,7 @@ import {
   updateEmployeeAction,
   updateEmployeeScheduleAction,
 } from "@/lib/api/employees"
+import { assignUserRoleAction, fetchRbacData } from "@/lib/api/rbac"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -573,7 +574,25 @@ export default function EmployeesPage() {
         return
       }
 
-      toast.success("Employee and staff account created")
+      if (empForm.department.trim().toLowerCase() === "cashier") {
+        const userId = result.data?.employee?.user_id ?? result.data?.employee?.userId
+        const rbac = await fetchRbacData()
+        const cashierRole = rbac.success
+          ? rbac.data.roles.find((role: any) => role.name?.toLowerCase() === "cashier")
+          : null
+        if (userId && cashierRole) {
+          const assigned = await assignUserRoleAction({ userId, roleId: cashierRole.id })
+          if (!assigned.success) {
+            toast.error("Employee account was created, but cashier access could not be assigned. Update the role in Roles & Access.", { description: assigned.error })
+          } else {
+            toast.success("Employee created with Cashier login access")
+          }
+        } else {
+          toast.error("Employee account was created with the default role. Assign Cashier in Roles & Access.", { description: rbac.error ?? "Cashier role is unavailable." })
+        }
+      } else {
+        toast.success("Employee and staff account created")
+      }
       const refreshed = await fetchEmployeesData()
       if (refreshed.success) {
         setEmployees(
@@ -1988,6 +2007,11 @@ export default function EmployeesPage() {
                     <SelectItem value="Service">Service</SelectItem>
                   </SelectContent>
                 </Select>
+                {!editingEmployee && (
+                  <p className="text-[10px] text-muted-foreground">
+                    New login accounts in the Cashier department get the Cashier role and its limited access.
+                  </p>
+                )}
               </div>
             </div>
 

@@ -33,6 +33,7 @@ class Rbac extends Controller
         $rawUsers = $this->users->query()->get_all() ?: [];
         $users = array_map(function($u) {
             $row = (array)$u;
+            unset($row['password']);
             $row['roleId'] = $row['role_id'] ?? '';
             $row['isActive'] = (bool)($row['is_active'] ?? false);
             $row['contactNumber'] = $row['contact_number'] ?? '';

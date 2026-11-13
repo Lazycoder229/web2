@@ -12,6 +12,7 @@ class Payment extends Controller
     private $customers;
     private $loyalty;
     private $loyaltySettings;
+    private $realtime;
 
     public function __construct()
     {
@@ -24,6 +25,7 @@ class Payment extends Controller
         $this->customers = $this->call->model('CustomerModel');
         $this->loyalty = $this->call->model('LoyaltyTransactionModel');
         $this->loyaltySettings = $this->call->model('LoyaltySettingModel');
+        $this->realtime = $this->call->library('RealtimePublisher');
     }
 
     #[Post('/payments')]
@@ -74,6 +76,7 @@ class Payment extends Controller
         ]);
         $paidOrder = $this->orders->find($order['id']);
         $this->loyalty->award_for_paid_order($paidOrder, $this->customers, $this->loyaltySettings);
+        $this->realtime->publish('orders.changed');
         $this->success([
             'receiptNumber' => $receipt,
             'change' => round($amount - (float) $order['total'], 2),

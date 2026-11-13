@@ -25,7 +25,7 @@ import {
   type ActiveSessionLock,
 } from "@/lib/api/session-lock"
 
-export function AdminLoginForm({ nextPath }: { nextPath?: string }) {
+export function AdminLoginForm({ nextPath, accountType = "admin" }: { nextPath?: string; accountType?: "admin" | "cashier" }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [signingIn, setSigningIn] = useState(false)
@@ -52,11 +52,13 @@ export function AdminLoginForm({ nextPath }: { nextPath?: string }) {
   }, [])
 
   const destination =
-    nextPath &&
-    (nextPath === "/admin" || nextPath.startsWith("/admin/")) &&
-    nextPath !== "/admin/login"
-      ? nextPath
-      : "/admin"
+    accountType === "cashier"
+      ? "/admin"
+      : nextPath &&
+          (nextPath === "/admin" || nextPath.startsWith("/admin/")) &&
+          nextPath !== "/admin/login"
+        ? nextPath
+        : "/admin"
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -97,6 +99,17 @@ export function AdminLoginForm({ nextPath }: { nextPath?: string }) {
       return
     }
 
+    const isCashier = result.data.user.role.toLowerCase() === "cashier"
+    if ((accountType === "cashier") !== isCashier) {
+      await logoutAdmin()
+      setBusy(false)
+      setSigningIn(false)
+      setError(accountType === "cashier"
+        ? "Cashier accounts only. Please check your cashier account or use Admin sign in."
+        : "This is a cashier account. Please sign in at the cashier login page.")
+      return
+    }
+
     // Success: keep the form (with spinner) until the redirect finishes so the
     // "active session" panel doesn't flash while navigating.
     router.replace(destination)
@@ -107,22 +120,26 @@ export function AdminLoginForm({ nextPath }: { nextPath?: string }) {
     <main className="grid min-h-dvh bg-white">
       <div className="grid min-h-dvh w-full bg-white lg:grid-cols-2">
         <AuthBrandCard
-          eyebrow="ADMIN WORKSPACE"
-          title="Every shift, clearly in view."
-          description="Manage orders, staff, inventory, and reports from one focused workspace."
+          eyebrow={accountType === "cashier" ? "CASHIER WORKSPACE" : "ADMIN WORKSPACE"}
+          title={accountType === "cashier" ? "Your shift starts here." : "Every shift, clearly in view."}
+          description={accountType === "cashier"
+            ? "Open menu, live orders, reservations, and inventory."
+            : "Manage orders, staff, inventory, and reports from one focused workspace."}
           showImage={false}
         />
         <Card className="flex min-h-dvh flex-col justify-center rounded-none border-0 bg-white shadow-none">
           <div className="mx-auto w-full max-w-md">
             <CardHeader className="space-y-1 p-4 sm:p-5">
               <p className="text-xs font-semibold tracking-[.14em] text-amber-600 uppercase">
-                Admin sign in
+                {accountType === "cashier" ? "CASHIER WORKSPACE" : "ADMIN WORKSPACE"}
               </p>
               <CardTitle className="text-xl sm:text-2xl">
-                Sign in to your admin account
+                Sign in to your {accountType === "cashier" ? "cashier" : "admin"} account
               </CardTitle>
               <CardDescription className="text-sm">
-                Manage restaurant operations from your PRIME POS workspace.
+                {accountType === "cashier"
+                  ? "Open menu, live orders, reservations, and inventory."
+                  : "Manage restaurant operations from your PRIME POS workspace."}
               </CardDescription>
             </CardHeader>
             <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">
@@ -157,7 +174,7 @@ export function AdminLoginForm({ nextPath }: { nextPath?: string }) {
                           onClick={() => router.replace(destination)}
                           className="h-9 flex-1 bg-amber-500 font-semibold text-amber-950 hover:bg-amber-400"
                         >
-                          Pumunta sa Admin Dashboard
+                          Pumunta sa Workspace
                         </Button>
                         <Button
                           type="button"
@@ -304,6 +321,15 @@ export function AdminLoginForm({ nextPath }: { nextPath?: string }) {
                       className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                     >
                       Forgot password?
+                    </Link>
+                  </p>
+                  <p className="text-center text-sm text-muted-foreground">
+                    {accountType === "cashier" ? "Administrator? " : "Cashier? "}
+                    <Link
+                      href={accountType === "cashier" ? "/admin/login" : "/cashier/login"}
+                      className="font-medium text-amber-700 underline-offset-4 hover:underline"
+                    >
+                      {accountType === "cashier" ? "Admin sign in" : "Cashier sign in"}
                     </Link>
                   </p>
                 </form>

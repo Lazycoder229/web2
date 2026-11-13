@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "@/components/react-router-compat"
 import { Minus, Plus, QrCode, ShoppingBag, Utensils, X } from "lucide-react"
 import { toast } from "sonner"
@@ -30,6 +30,7 @@ import { fetchTables, occupyTableAction } from "@/lib/api/tables"
 import { getCustomerAccessToken } from "@/lib/api/client"
 import { createCustomerQrOrder } from "@/lib/api/customer"
 import { fetchSystemSettings } from "@/lib/api/settings"
+import { useRealtimeEvents } from "@/lib/api/realtime"
 import type { Category, MenuItem } from "@/types/admin/menu"
 
 type TableOption = {
@@ -145,6 +146,20 @@ export function QrOrderExperience({
   useEffect(() => {
     if (initialTableId) setSelectedTable(initialTableId)
   }, [initialTableId])
+
+  const refreshMenu = useCallback(async () => {
+    const menuResult = await getMenuDataAction()
+    if (!menuResult.success || !menuResult.data) return
+    setCategories(menuResult.data.categories.filter((category) => category.isActive))
+    setItems(menuResult.data.items.filter((item) => item.isAvailable))
+  }, [])
+
+  const realtimeConnected = useRealtimeEvents(["stock.changed"], refreshMenu)
+  useEffect(() => {
+    if (realtimeConnected) return
+    const timer = window.setInterval(() => void refreshMenu(), 30_000)
+    return () => window.clearInterval(timer)
+  }, [realtimeConnected, refreshMenu])
 
   // Scanning a table QR marks that table occupied right away, so staff see it
   // in the admin before the customer has ordered or paid. Only signed-in
@@ -324,9 +339,12 @@ export function QrOrderExperience({
       setSubmitting(false)
     }
     if (!result.success || !result.data) {
+      const stockConflict = /just sold out|just ran out/i.test(result.error ?? "")
       toast.error("Could not place your order", {
         id: queuedToastId,
-        description: `${result.error ?? "The server did not confirm the order."} Your order may already be saved. Retry this same order safely; it will not be duplicated.`,
+        description: stockConflict
+          ? `${result.error} No order was placed. Please update your cart and try again.`
+          : `${result.error ?? "The server did not confirm the order."} Your order may already be saved. Retry this same order safely; it will not be duplicated.`,
       })
       return
     }

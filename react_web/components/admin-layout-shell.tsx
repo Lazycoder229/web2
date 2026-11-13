@@ -46,7 +46,8 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
         return
       }
 
-      setAdminProfile(getSavedAdminProfile())
+      const profile = getSavedAdminProfile()
+      setAdminProfile(profile)
     }
 
     syncAdmin()
