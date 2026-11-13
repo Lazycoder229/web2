@@ -2,8 +2,12 @@ ARG PHP_VERSION=8.5
 
 FROM php:${PHP_VERSION}-apache
 
-# Install PDO MySQL and cURL for server-side reCAPTCHA verification
-RUN docker-php-ext-install curl pdo pdo_mysql
+# Install the system headers required by PDO MySQL and cURL, then compile the
+# PHP extensions used by the API.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libcurl4-openssl-dev \
+    && docker-php-ext-install curl pdo pdo_mysql \
+    && rm -rf /var/lib/apt/lists/*
 
 # Enable Apache mod_rewrite (needed for clean URLs, e.g. /student instead of /index.php/student)
 RUN a2enmod rewrite
