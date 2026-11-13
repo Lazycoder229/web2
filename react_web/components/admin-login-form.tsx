@@ -34,9 +34,7 @@ export function AdminLoginForm({ nextPath }: { nextPath?: string }) {
   const [activeSession, setActiveSession] = useState<ActiveSessionLock | null>(null)
   const formStartedAt = useRef(Date.now())
   const [recaptchaToken, setRecaptchaToken] = useState("")
-  const recaptchaEnabled =
-    import.meta.env.VITE_RECAPTCHA_ENABLED !== "false" &&
-    Boolean(import.meta.env.VITE_RECAPTCHA_SITE_KEY)
+  const recaptchaEnabled = import.meta.env.VITE_RECAPTCHA_ENABLED !== "false"
 
   function handleRecaptchaToken(token: string) {
     setRecaptchaToken(token)

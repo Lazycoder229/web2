@@ -1,0 +1,6 @@
+# Public Google reCAPTCHA v2 Checkbox site key (safe to include in the frontend)
+VITE_RECAPTCHA_ENABLED=true
+VITE_RECAPTCHA_SITE_KEY=
+
+# Base URL of the API deployment
+VITE_API_URL=/backend

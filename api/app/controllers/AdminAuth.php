@@ -25,7 +25,19 @@ class AdminAuth extends Controller
         if ($this->recaptchaRequired()) {
             $recaptcha = $this->verify_recaptcha((string) ($input['recaptchaToken'] ?? ''));
             if (!$recaptcha['success']) {
+                $errorCodes = $recaptcha['error-codes'] ?? [];
+                if (in_array('missing-input-secret', $errorCodes, true) || in_array('invalid-input-secret', $errorCodes, true)) {
+                    $this->api->respond_error('reCAPTCHA server configuration is missing or invalid. Check RECAPTCHA_SECRET_KEY.', 500);
+                }
+                if (in_array('verification-request-failed', $errorCodes, true)) {
+                    $this->api->respond_error('Could not verify reCAPTCHA with Google. Check outbound network access from the API server.', 503);
+                }
                 $message = 'Please complete the reCAPTCHA check.';
+                if (in_array('missing-input-response', $errorCodes, true)) {
+                    $message = 'The reCAPTCHA token is missing. Check VITE_RECAPTCHA_SITE_KEY in the web deployment settings, then rebuild and redeploy the frontend.';
+                } elseif (array_intersect(['invalid-input-response', 'timeout-or-duplicate'], $errorCodes)) {
+                    $message = 'The reCAPTCHA expired or was invalid. Complete the checkbox again and retry.';
+                }
                 if (getenv('APP_ENV') === 'development' && !empty($recaptcha['error-codes'])) {
                     $message .= ' (' . implode(', ', $recaptcha['error-codes']) . ')';
                 }
@@ -153,8 +165,9 @@ class AdminAuth extends Controller
     private function verify_recaptcha(string $token): array
     {
         $secret = trim((string) getenv('RECAPTCHA_SECRET_KEY'));
-        if ($secret === '') return ['success' => true];
+        if ($secret === '') return ['success' => false, 'error-codes' => ['missing-input-secret']];
         if ($token === '') return ['success' => false, 'error-codes' => ['missing-input-response']];
+        if (!function_exists('curl_init')) return ['success' => false, 'error-codes' => ['verification-request-failed']];
 
         $curl = curl_init('https://www.google.com/recaptcha/api/siteverify');
         if ($curl === false) return ['success' => false, 'error-codes' => ['verification-request-failed']];

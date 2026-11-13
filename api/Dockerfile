@@ -2,8 +2,8 @@ ARG PHP_VERSION=8.5
 
 FROM php:${PHP_VERSION}-apache
 
-# Install PDO MySQL
-RUN docker-php-ext-install pdo pdo_mysql
+# Install PDO MySQL and cURL for server-side reCAPTCHA verification
+RUN docker-php-ext-install curl pdo pdo_mysql
 
 # Enable Apache mod_rewrite (needed for clean URLs, e.g. /student instead of /index.php/student)
 RUN a2enmod rewrite

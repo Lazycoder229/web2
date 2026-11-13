@@ -86,7 +86,16 @@ export function RecaptchaCheckbox({
     return () => script.removeEventListener("load", renderWidget)
   }, [enabled, siteKey])
 
-  if (!enabled || !siteKey) return null
+  if (!enabled) return null
+  if (!siteKey) {
+    return (
+      <p role="alert" className="text-xs text-destructive">
+        reCAPTCHA is enabled but its site key is missing. Set
+        VITE_RECAPTCHA_SITE_KEY in the web app deployment settings, then rebuild
+        and redeploy the frontend.
+      </p>
+    )
+  }
   return (
     <div className="min-h-20">
       <div ref={containerRef} />
