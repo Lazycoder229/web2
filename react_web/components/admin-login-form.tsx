@@ -317,7 +317,7 @@ export function AdminLoginForm({ nextPath, accountType = "admin" }: { nextPath?:
                   </Button>
                   <p className="text-center text-sm">
                     <Link
-                      href="/admin/forgot-password"
+                      href={accountType === "cashier" ? "/cashier/forgot-password" : "/admin/forgot-password"}
                       className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                     >
                       Forgot password?

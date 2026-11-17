@@ -33,7 +33,7 @@ export function PasswordRecoveryForm({
   const [error, setError] = useState("")
   const [complete, setComplete] = useState(false)
   const [message, setMessage] = useState("")
-  const loginHref = accountType === "admin" ? "/admin/login" : "/customer/login"
+  const loginHref = accountType === "customer" ? "/customer/login" : accountType === "cashier" ? "/cashier/login" : "/admin/login"
   const isReset = Boolean(token)
   const backToLogin = () => {
     if (onBack) onBack()
@@ -83,7 +83,7 @@ export function PasswordRecoveryForm({
     <Card className="rounded-2xl border-stone-200 shadow-sm">
       <CardHeader className="space-y-1 p-4 sm:p-5">
         <p className="text-xs font-semibold tracking-[.14em] text-amber-600 uppercase">
-          {accountType === "admin" ? "Admin account" : "Customer account"}
+          {accountType === "customer" ? "Customer account" : `${accountType === "cashier" ? "Cashier" : "Admin"} account`}
         </p>
         <CardTitle className="text-xl">
           {complete

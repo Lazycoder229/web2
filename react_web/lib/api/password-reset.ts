@@ -1,15 +1,13 @@
 import { api } from "./client"
 
-export type PasswordResetAccount = "admin" | "customer"
+export type PasswordResetAccount = "admin" | "cashier" | "customer"
 
 export async function requestPasswordReset(
   accountType: PasswordResetAccount,
   email: string
 ) {
   const path =
-    accountType === "admin"
-      ? "/auth/forgot-password"
-      : "/customers/forgot-password"
+    accountType === "customer" ? "/customers/forgot-password" : "/auth/forgot-password"
   return api<{ message: string }>(path, {
     method: "POST",
     body: JSON.stringify({ email }),
@@ -23,7 +21,7 @@ export async function resetPassword(
   password: string
 ) {
   const path =
-    accountType === "admin" ? "/auth/reset-password" : "/customers/reset-password"
+    accountType === "customer" ? "/customers/reset-password" : "/auth/reset-password"
   return api<{ message: string }>(path, {
     method: "POST",
     body: JSON.stringify({ token, password }),

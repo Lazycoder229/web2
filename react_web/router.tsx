@@ -41,6 +41,8 @@ import ReceiptPage from "@/app/customer/receipt/[orderId]/page"
 import GuestStartPage from "@/app/customer/guest/page"
 import LegacyTableQr from "@/app/t/[tableId]/page"
 import CashierLoginPage from "@/app/cashier/login/page"
+import CashierForgotPasswordPage from "@/app/cashier/forgot-password/page"
+import CashierResetPasswordPage from "@/app/cashier/reset-password/page"
 
 function AdminRouteLayout() {
   return (
@@ -89,6 +91,8 @@ function RouteErrorBoundary() {
 export const routes: RouteObject[] = [
   { path: "/", element: <PrimeLanding />, errorElement: <RouteErrorBoundary /> },
   { path: "/cashier/login", element: <CashierLoginPage />, errorElement: <RouteErrorBoundary /> },
+  { path: "/cashier/forgot-password", element: <CashierForgotPasswordPage />, errorElement: <RouteErrorBoundary /> },
+  { path: "/cashier/reset-password", element: <CashierResetPasswordPage />, errorElement: <RouteErrorBoundary /> },
   {
     path: "/admin",
     element: <AdminRouteLayout />,

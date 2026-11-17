@@ -12,7 +12,7 @@ export function PasswordRecoveryPage({
   return (
     <main className="grid min-h-dvh bg-white lg:grid-cols-2">
       <AuthBrandCard
-        eyebrow={accountType === "admin" ? "ADMIN WORKSPACE" : "CUSTOMER ACCOUNT"}
+        eyebrow={accountType === "customer" ? "CUSTOMER ACCOUNT" : `${accountType.toUpperCase()} WORKSPACE`}
         title="A secure way back to your account."
         description="Reset your PRIME POS password and continue where you left off."
         imageOnly

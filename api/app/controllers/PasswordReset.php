@@ -81,7 +81,13 @@ class PasswordReset extends Controller
         );
 
         $webUrl = rtrim((string) (getenv('WEB_APP_URL') ?: 'http://localhost:3000'), '/');
-        $resetPath = $type === 'admin' ? '/admin/reset-password' : '/customer/reset-password';
+        $resetPath = $type === 'customer' ? '/customer/reset-password' : '/admin/reset-password';
+        if ($type === 'admin') {
+            $role = $this->db->raw('SELECT name FROM roles WHERE id = ? LIMIT 1', [$account['role_id']])->fetch(PDO::FETCH_ASSOC);
+            if (strtolower((string) ($role['name'] ?? '')) === 'cashier') {
+                $resetPath = '/cashier/reset-password';
+            }
+        }
         $resetUrl = $webUrl . $resetPath . '?token=' . rawurlencode($token);
         $safeUrl = htmlspecialchars($resetUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $safeName = htmlspecialchars((string) ($account['name'] ?? 'there'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
