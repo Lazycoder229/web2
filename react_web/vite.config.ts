@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
     : parsedApiUrl.pathname.replace(/\/+$/, "")
   const apiOrigin = parsedApiUrl.origin
   const proxyAgent = parsedApiUrl.protocol === "https:"
-    ? new Agent({ ca: getCACertificates("system") })
+    ? new Agent()
     : undefined
   const realtimeProxyUrl = env.REALTIME_PROXY_URL ?? "ws://127.0.0.1:3002"
   const realtimeProxyTarget = realtimeProxyUrl.replace(/^ws:/, "http:").replace(/^wss:/, "https:")
