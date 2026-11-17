@@ -467,6 +467,22 @@ export async function api<T>(
       let res = await send(initialToken)
       let responseText = await res.text().catch(() => "")
       let json = parseEnvelope<T>(responseText)
+      if (/\/(auth|customers)\/forgot-password$/.test(path)) {
+        const responseData = json?.data
+        const debugStatus =
+          responseData && typeof responseData === "object" && "debug" in responseData
+            ? (responseData as { debug?: unknown }).debug
+            : undefined
+        console.info("[password reset] API response", {
+          status: res.status,
+          ok: res.ok,
+          url: res.url,
+          contentType: res.headers.get("content-type"),
+          validJson: json !== null,
+          apiSuccess: json?.success,
+          debugStatus,
+        })
+      }
 
       if (res.status === 401 && !skipAuthRedirect && initialToken) {
         const newAccessToken = await refreshSessionToken(Boolean(customerAuth))
