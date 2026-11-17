@@ -84,6 +84,7 @@ export async function loginCustomer(input: {
   remember?: boolean
   website?: string
   formStartedAt?: number
+  recaptchaToken?: string
 }) {
   const { remember = true, ...fields } = input
   const email = input.email.trim()

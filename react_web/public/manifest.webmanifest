@@ -1,10 +1,10 @@
 {
-  "id": "/",
-  "name": "PRIME POS",
-  "short_name": "PRIME POS",
-  "description": "Restaurant ordering and operations",
-  "start_url": "/",
-  "scope": "/",
+  "id": "/customer",
+  "name": "PRIME POS Customer",
+  "short_name": "PRIME Customer",
+  "description": "Order, manage reservations, and collect rewards with PRIME POS",
+  "start_url": "/customer",
+  "scope": "/customer",
   "display": "standalone",
   "icons": [
     {

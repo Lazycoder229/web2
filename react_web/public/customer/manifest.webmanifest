@@ -3,7 +3,7 @@
   "name": "PRIME POS Customer",
   "short_name": "PRIME Customer",
   "description": "Order, manage reservations, and collect rewards with PRIME POS",
-  "start_url": "/customer",
+  "start_url": "/customer/login",
   "scope": "/customer",
   "display": "standalone",
   "background_color": "#ffffff",

@@ -4,7 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ffffff" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="manifest" href="/customer/manifest.webmanifest" />
+    <script>
+      const path = window.location.pathname
+      const manifest = path.startsWith("/admin/") || path === "/admin"
+        ? "/admin/manifest.webmanifest"
+        : path.startsWith("/cashier/") || path === "/cashier"
+          ? "/cashier/manifest.webmanifest"
+          : "/customer/manifest.webmanifest"
+      document.querySelector('link[rel="manifest"]').setAttribute("href", manifest)
+    </script>
     <title>PRIME POS</title>
   </head>
   <body>

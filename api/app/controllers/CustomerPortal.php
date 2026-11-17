@@ -78,6 +78,19 @@ class CustomerPortal extends Controller
     {
         $input = $this->api->body();
         $this->reject_automated_auth($input);
+        if ($this->recaptchaRequired()) {
+            $recaptcha = $this->verify_recaptcha((string) ($input['recaptchaToken'] ?? ''));
+            if (!$recaptcha['success']) {
+                $codes = $recaptcha['error-codes'] ?? [];
+                if (in_array('missing-input-secret', $codes, true) || in_array('invalid-input-secret', $codes, true)) {
+                    $this->api->respond_error('reCAPTCHA server configuration is missing or invalid. Check RECAPTCHA_SECRET_KEY.', 500);
+                }
+                if (in_array('verification-request-failed', $codes, true)) {
+                    $this->api->respond_error('Could not verify reCAPTCHA with Google. Check outbound network access from the API server.', 503);
+                }
+                $this->api->respond_error('Please complete the reCAPTCHA check.', 422);
+            }
+        }
         $email = strtolower(trim((string) ($input['email'] ?? '')));
         $rows = $this->customers->query()->where('email', $email)->get_all();
         $customer = $rows[0] ?? null;
@@ -404,5 +417,34 @@ class CustomerPortal extends Controller
         if ($honeypot !== '' || $submittedTooFast) {
             $this->api->respond_error('Unable to verify this account request.', 422);
         }
+    }
+
+    private function recaptchaRequired(): bool
+    {
+        $configured = getenv('RECAPTCHA_REQUIRED');
+        return $configured === false || filter_var($configured, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function verify_recaptcha(string $token): array
+    {
+        $secret = trim((string) getenv('RECAPTCHA_SECRET_KEY'));
+        if ($secret === '') return ['success' => false, 'error-codes' => ['missing-input-secret']];
+        if ($token === '') return ['success' => false, 'error-codes' => ['missing-input-response']];
+        if (!function_exists('curl_init')) return ['success' => false, 'error-codes' => ['verification-request-failed']];
+
+        $curl = curl_init('https://www.google.com/recaptcha/api/siteverify');
+        if ($curl === false) return ['success' => false, 'error-codes' => ['verification-request-failed']];
+        curl_setopt_array($curl, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query(['secret' => $secret, 'response' => $token]),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $response = curl_exec($curl);
+        curl_close($curl);
+        $result = is_string($response) ? json_decode($response, true) : null;
+        return is_array($result) ? $result : ['success' => false, 'error-codes' => ['verification-request-failed']];
     }
 }

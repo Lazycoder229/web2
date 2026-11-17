@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PasswordRecoveryForm } from "@/components/password-recovery-form"
+import { RecaptchaCheckbox } from "@/components/recaptcha-checkbox"
 import { logoutAdmin } from "@/lib/api/admin-auth"
 import {
   loginCustomer,
@@ -54,6 +55,13 @@ export function CustomerAccount({
   const [remember, setRemember] = useState(true)
   const [activeSession, setActiveSession] = useState<ActiveSessionLock | null>(null)
   const formStartedAt = useRef(Date.now())
+  const [recaptchaToken, setRecaptchaToken] = useState("")
+  const recaptchaEnabled = import.meta.env.VITE_RECAPTCHA_ENABLED !== "false"
+
+  function handleRecaptchaToken(token: string) {
+    setRecaptchaToken(token)
+    if (token) setError("")
+  }
 
   useEffect(() => {
     setActiveSession(getActiveSessionLock())
@@ -92,6 +100,7 @@ export function CustomerAccount({
             remember,
             website,
             formStartedAt: formStartedAt.current,
+            recaptchaToken,
           })
         : await registerCustomer({
             name: String(values.name ?? ""),
@@ -373,6 +382,9 @@ export function CustomerAccount({
                     name="formStartedAt"
                     value={formStartedAt.current}
                   />
+              {mode === "login" && (
+                <RecaptchaCheckbox onTokenChange={handleRecaptchaToken} />
+              )}
               {mode === "register" && (
                 <>
                   <div className="space-y-1.5">
@@ -478,7 +490,7 @@ export function CustomerAccount({
                 </p>
               )}
               <Button
-                disabled={busy || sessionLoading}
+                disabled={busy || sessionLoading || (mode === "login" && recaptchaEnabled && !recaptchaToken)}
                 className="h-9 w-full bg-amber-500 text-amber-950 hover:bg-amber-400"
               >
                 {busy && <Loader2 className="mr-2 size-4 animate-spin" />}
