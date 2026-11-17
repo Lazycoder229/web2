@@ -160,6 +160,15 @@ function errorText(value: unknown): string | undefined {
   return undefined
 }
 
+function parseEnvelope<T>(text: string): Envelope<T> | null {
+  if (!text) return null
+  try {
+    return JSON.parse(text) as Envelope<T>
+  } catch {
+    return null
+  }
+}
+
 type RefreshedTokens = {
   accessToken: string
   refreshToken: string
@@ -456,13 +465,15 @@ export async function api<T>(
         })
 
       let res = await send(initialToken)
-      let json = (await res.json().catch(() => null)) as Envelope<T> | null
+      let responseText = await res.text().catch(() => "")
+      let json = parseEnvelope<T>(responseText)
 
       if (res.status === 401 && !skipAuthRedirect && initialToken) {
         const newAccessToken = await refreshSessionToken(Boolean(customerAuth))
         if (newAccessToken) {
           res = await send(newAccessToken)
-          json = (await res.json().catch(() => null)) as Envelope<T> | null
+          responseText = await res.text().catch(() => "")
+          json = parseEnvelope<T>(responseText)
         }
       }
 
@@ -502,6 +513,13 @@ export async function api<T>(
             errorText(json?.error) ??
             errorText(json?.message) ??
             `Request failed (${res.status}).`,
+        }
+      }
+
+      if (!json) {
+        return {
+          success: false,
+          error: `API returned an empty or non-JSON response (HTTP ${res.status}). Check the API URL and PHP error log.`,
         }
       }
 

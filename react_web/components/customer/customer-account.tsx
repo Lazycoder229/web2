@@ -36,9 +36,11 @@ import { safeCustomerNextPath } from "@/lib/customer-next"
 export function CustomerAccount({
   initialMode = "login",
   showAuth = false,
+  fullPageAuth = false,
 }: {
   initialMode?: "login" | "register"
   showAuth?: boolean
+  fullPageAuth?: boolean
 }) {
   const router = useRouter()
   const {
@@ -270,9 +272,14 @@ export function CustomerAccount({
           onBack={() => setShowForgotPassword(false)}
         />
       ) : showAuth ? (
-        <Card className="flex min-h-0 flex-col justify-center rounded-2xl border-stone-200 shadow-sm">
-          <div className="mx-auto w-full max-w-lg">
+        <Card className={`flex flex-col justify-center ${fullPageAuth ? "min-h-dvh rounded-none border-0 bg-white shadow-none" : "min-h-0 rounded-2xl border-stone-200 shadow-sm"}`}>
+          <div className={`mx-auto w-full ${fullPageAuth ? "max-w-md" : "max-w-lg"}`}>
           <CardHeader className={showAuth ? "space-y-2.5 p-4 sm:p-5" : undefined}>
+            {fullPageAuth && (
+              <p className="text-xs font-semibold tracking-[.14em] text-amber-600 uppercase">
+                Customer workspace
+              </p>
+            )}
             <div className="flex gap-2">
               <Button
                 type="button"
@@ -307,8 +314,8 @@ export function CustomerAccount({
                 Create account
               </Button>
             </div>
-            <CardTitle className="pt-1 text-xl">
-              {mode === "login" ? "Welcome back" : "Join PRIME POS"}
+            <CardTitle className="pt-1 text-xl sm:text-2xl">
+              {mode === "login" ? (fullPageAuth ? "Sign in to your customer account" : "Welcome back") : "Join PRIME POS"}
             </CardTitle>
             <CardDescription>
               {mode === "login"

@@ -13,8 +13,7 @@ class PasswordReset extends Controller
     public function __construct()
     {
         parent::__construct();
-        $this->call->database();
-        $this->db = lava_instance()->db;
+        $this->db = $this->call->database();
         $this->api = $this->call->library('api');
         $this->users = $this->call->model('UserModel');
         $this->customers = $this->call->model('CustomerModel');
@@ -47,18 +46,35 @@ class PasswordReset extends Controller
 
     private function request_reset(string $type): void
     {
+        try {
+            $this->perform_reset_request($type);
+        } catch (Throwable $error) {
+            error_log('[Password reset] ' . $type . ' exception: ' . $error->getMessage() . ' at ' . $error->getFile() . ':' . $error->getLine());
+            $message = getenv('APP_ENV') === 'development'
+                ? 'Password reset exception: ' . $error->getMessage()
+                : 'Unable to process the password reset request right now.';
+            $this->api->respond([
+                'success' => false,
+                'error' => $message,
+                'status' => 500,
+            ], 500);
+        }
+    }
+
+    private function perform_reset_request(string $type): void
+    {
         $input = $this->api->body();
         $email = strtolower(trim((string) ($input['email'] ?? '')));
         $message = 'If an account exists for that email, a password reset link will be sent shortly.';
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $this->success(['message' => $message]);
+            $this->resetResponse($type, 'invalid_email', $message);
         }
 
         $model = $type === 'admin' ? $this->users : $this->customers;
         $matches = $model->query()->where('email', $email)->get_all() ?: [];
         $account = $matches[0] ?? null;
         if (!$account || ($type === 'admin' && empty($account['is_active'])) || ($type === 'customer' && !empty($account['is_guest']))) {
-            $this->success(['message' => $message]);
+            $this->resetResponse($type, 'no_eligible_account', $message);
         }
 
         $last = $this->db->raw(
@@ -66,7 +82,7 @@ class PasswordReset extends Controller
             [$type, $account['id']]
         )->fetch(PDO::FETCH_ASSOC);
         if ($last && strtotime((string) $last['created_at']) > time() - 60) {
-            $this->success(['message' => $message]);
+            $this->resetResponse($type, 'rate_limited_60_seconds', $message);
         }
 
         $token = bin2hex(random_bytes(32));
@@ -97,10 +113,11 @@ class PasswordReset extends Controller
         $plain = "Hello " . ($account['name'] ?? 'there') . ",\n\nReset your PRIME POS password using this link (expires in 60 minutes):\n" . $resetUrl
             . "\n\nIf you did not request this, you can ignore this email.";
 
-        if (!$this->mailer->send($email, 'Reset your PRIME POS password', $html, $plain)) {
+        $sent = $this->mailer->send($email, 'Reset your PRIME POS password', $html, $plain);
+        if (!$sent) {
             $this->db->raw('DELETE FROM password_reset_tokens WHERE token_hash = ?', [$hash]);
         }
-        $this->success(['message' => $message]);
+        $this->resetResponse($type, $sent ? 'smtp_accepted_message' : 'smtp_send_failed_check_php_logs', $message);
     }
 
     private function reset_password(string $type): void
@@ -141,5 +158,15 @@ class PasswordReset extends Controller
     private function success(array $data): void
     {
         $this->api->respond(['success' => true, 'data' => $data]);
+    }
+
+    private function resetResponse(string $type, string $diagnostic, string $message): void
+    {
+        error_log('[Password reset] ' . $type . ': ' . $diagnostic);
+        $data = ['message' => $message];
+        if (getenv('APP_ENV') === 'development') {
+            $data['debug'] = $diagnostic;
+        }
+        $this->success($data);
     }
 }
