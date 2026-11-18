@@ -36,6 +36,10 @@ class AdminAuthMiddleware
             $allowed = $path === '/api/auth/me';
             $rules = [
                 ['menu:view', 'GET', '#^/api/menu$#'],
+                // Loading the POS discount and promotion choices is needed to
+                // render the order form. Permit the read when the cashier has
+                // at least one discount capability; write operations remain
+                // unavailable to cashiers through this middleware.
                 ['orders:view', 'GET', '#^/api/orders(?:/[a-f0-9-]+)?$#i'],
                 ['orders:view', 'PUT', '#^/api/orders/[a-f0-9-]+/status$#i'],
                 ['reservations:view', 'GET|POST', '#^/api/reservations$#'],
@@ -47,6 +51,14 @@ class AdminAuthMiddleware
                     $allowed = true;
                     break;
                 }
+            }
+            if (
+                !$allowed &&
+                $method === 'GET' &&
+                preg_match('#^/api/discounts$#', $path) &&
+                (in_array('discounts:senior_pwd', $codes, true) || in_array('discounts:custom', $codes, true))
+            ) {
+                $allowed = true;
             }
             if (!$allowed) $api->respond_error('Your cashier role does not have access to this action.', 403);
         }
