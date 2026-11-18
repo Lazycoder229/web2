@@ -207,6 +207,25 @@ function formatPeso(n: number) {
   return `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+function downloadCsv(filename: string, headers: string[], rows: unknown[][]) {
+  const escapeCell = (value: unknown) => {
+    const text = value == null ? "" : String(value)
+    return `"${text.replace(/"/g, '""')}"`
+  }
+  const csv = [headers, ...rows]
+    .map((row) => row.map(escapeCell).join(","))
+    .join("\r\n")
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 function formatCompact(n: number) {
   if (n >= 1_000_000) return `₱${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `₱${(n / 1_000).toFixed(1)}K`
@@ -505,6 +524,9 @@ export default function ReportsPage() {
     e.preventDefault()
     if (isSavingExpense) return
     const errors: Record<string, string> = {}
+    if (!expenseForm.categoryId) {
+      errors.categoryId = "Category is required"
+    }
     if (!expenseForm.description.trim()) {
       errors.description = "Description is required"
     }
@@ -549,7 +571,6 @@ export default function ReportsPage() {
         expenseDate: expenseForm.expenseDate,
         receiptReference: expenseForm.receiptReference?.trim() || undefined,
         notes: expenseForm.notes?.trim() || undefined,
-        recordedByStaffId: crypto.randomUUID(),
       })
       if (!result.success) {
         toast.error(result.error)
@@ -738,6 +759,72 @@ export default function ReportsPage() {
     txPage * PAGE_SIZE
   )
 
+  function handleExport() {
+    if (isLoading) {
+      toast.info("Reports are still loading. Try exporting again in a moment.")
+      return
+    }
+
+    let headers: string[]
+    let rows: unknown[][]
+    switch (activeTab) {
+      case "expenses":
+        headers = ["Date", "Category", "Description", "Amount", "Receipt Reference", "Notes", "Recorded By"]
+        rows = filteredExpenses.map((expense) => [
+          expense.expenseDate,
+          expenseCategories.find((category) => category.id === expense.categoryId)?.name ?? "",
+          expense.description,
+          expense.amount,
+          expense.receiptReference,
+          expense.notes,
+          expense.recordedByStaffName,
+        ])
+        break
+      case "transactions":
+        headers = ["Date", "Time", "Order Number", "Type", "Table", "Customer", "Items", "Subtotal", "Discount", "Tax", "Total", "Payment Method", "Receipt Number", "Staff", "Status"]
+        rows = filteredTransactions.map((transaction) => [
+          transaction.date,
+          transaction.time,
+          transaction.orderNumber,
+          transaction.type,
+          transaction.tableNumber,
+          transaction.customer,
+          transaction.items,
+          transaction.subtotal,
+          transaction.discount,
+          transaction.tax,
+          transaction.total,
+          paymentMethodLabels[transaction.paymentMethod],
+          transaction.receiptNumber,
+          transaction.staffName,
+          transaction.status,
+        ])
+        break
+      case "insights": {
+        headers = ["Insight Type", "Name", "Value", "Count", "Details"]
+        rows = [
+          ...categoryRevenue.map((item) => ["Category revenue", item.category, item.revenue, item.quantitySold, "Quantity sold"]),
+          ...topSellingItems.map((item) => ["Top selling item", item.name, item.revenue, item.quantitySold, item.category]),
+          ...staffPerformance.map((item) => ["Staff performance", item.name, item.totalSales, item.ordersProcessed, `${item.role}; average handling ${item.avgHandlingTime}; void rate ${item.voidRate}%`]),
+          ...discountInsights.map((item) => ["Discount", item.typeName, item.totalDiscount, item.usageCount, `Average per order ${item.avgPerOrder}`]),
+          ...promoInsights.map((item) => ["Promotion", item.name, item.totalDiscount, item.usageCount, `${item.promoType}; ${item.isActive ? "Active" : "Inactive"}`]),
+        ]
+        break
+      }
+      default:
+        headers = ["Date", "Revenue", "Orders", "Average Order Value"]
+        rows = dailySales.map((day) => [day.date, day.revenue, day.orders, day.avgOrderValue])
+    }
+
+    if (rows.length === 0) {
+      toast.info("There is no report data to export for this tab.")
+      return
+    }
+    const date = new Date().toISOString().slice(0, 10)
+    downloadCsv(`prime-pos-${activeTab}-${date}.csv`, headers, rows)
+    toast.success("Report exported as CSV.")
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -778,6 +865,7 @@ export default function ReportsPage() {
               variant="outline"
               size="sm"
               className="h-10 gap-2 text-xs font-medium"
+              onClick={handleExport}
             >
               <Download className="size-3.5" />
               Export
@@ -2296,16 +2384,20 @@ export default function ReportsPage() {
           <form onSubmit={handleSaveExpense} className="mt-6 space-y-4">
             {/* Category */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Category</Label>
+              <Label className="text-xs font-medium">
+                Category <span className="text-rose-500">*</span>
+              </Label>
               <Select
                 value={expenseForm.categoryId}
                 onValueChange={(val) => {
-                  if (val)
+                  if (val) {
                     setExpenseForm((prev) => ({ ...prev, categoryId: val }))
+                    setExpenseFormErrors((prev) => ({ ...prev, categoryId: "" }))
+                  }
                 }}
               >
                 <SelectTrigger className="h-9 text-xs">
-                  <SelectValue />
+                  <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
                   {expenseCategories.map((cat) => (
@@ -2321,6 +2413,11 @@ export default function ReportsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {expenseFormErrors.categoryId && (
+                <p className="text-[11px] font-medium text-rose-500">
+                  {expenseFormErrors.categoryId}
+                </p>
+              )}
             </div>
 
             {/* Description */}

@@ -336,13 +336,31 @@ class Report extends Controller
     #[Post('/expenses')] public function expense()
     {
         $i = $this->api->body();
+        $categoryId = trim((string) ($i['categoryId'] ?? ''));
+        if ($categoryId === '') {
+            $this->api->respond_error('Expense category is required.', 422);
+        }
+        if (!$this->categories->find($categoryId)) {
+            $this->api->respond_error('Selected expense category was not found. Refresh the page and try again.', 422);
+        }
+
+        $claims = $this->api->validate_jwt($this->api->get_bearer_token() ?? '');
+        $adminId = (string) ($claims['sub'] ?? '');
+        if ($adminId === '' || !$this->users->find($adminId)) {
+            $this->api->respond_error('Admin account could not be verified. Sign in again and retry.', 401);
+        }
+
         $id = $this->uuid();
-        $this->expenses->insert(array_merge(['id' => $id], $this->columns($i)));
+        $this->expenses->insert(array_merge(
+            ['id' => $id],
+            $this->columns($i),
+            ['recorded_by_staff_id' => $adminId]
+        ));
         $this->success(['expense' => $this->expenses->find($id)], 201);
     }
     private function columns($i)
     {
-        $m = ['categoryId' => 'category_id','description' => 'description','amount' => 'amount','expenseDate' => 'expense_date','receiptReference' => 'receipt_reference','notes' => 'notes','recordedByStaffId' => 'recorded_by_staff_id'];
+        $m = ['categoryId' => 'category_id','description' => 'description','amount' => 'amount','expenseDate' => 'expense_date','receiptReference' => 'receipt_reference','notes' => 'notes'];
         $o = [];
         foreach ($m as $a => $b) {
             if (array_key_exists($a, $i)) {
