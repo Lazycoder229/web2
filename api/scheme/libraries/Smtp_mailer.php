@@ -7,6 +7,11 @@ class Smtp_mailer
 
     public function send(string $recipient, string $subject, string $html, string $plain): bool
     {
+        $brevoApiKey = trim((string) getenv('BREVO_API_KEY'));
+        if ($brevoApiKey !== '') {
+            return $this->sendWithBrevoApi($brevoApiKey, $recipient, $subject, $html, $plain);
+        }
+
         $host = trim((string) getenv('SMTP_HOST'));
         $port = (int) (getenv('SMTP_PORT') ?: 587);
         $encryption = strtolower(trim((string) (getenv('SMTP_ENCRYPTION') ?: 'tls')));
@@ -95,6 +100,68 @@ class Smtp_mailer
             $this->socket = null;
             return false;
         }
+    }
+
+    private function sendWithBrevoApi(string $apiKey, string $recipient, string $subject, string $html, string $plain): bool
+    {
+        $sender = trim((string) getenv('SMTP_FROM_EMAIL'));
+        $senderName = trim((string) (getenv('SMTP_FROM_NAME') ?: 'PRIME POS'));
+        if ($sender === '' || !filter_var($sender, FILTER_VALIDATE_EMAIL) || !filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            error_log('Password reset email is not configured: SMTP_FROM_EMAIL and a valid recipient are required.');
+            return false;
+        }
+        if (!function_exists('curl_init')) {
+            error_log('Brevo API send failed: PHP cURL extension is unavailable.');
+            return false;
+        }
+
+        $curl = curl_init('https://api.brevo.com/v3/smtp/email');
+        if ($curl === false) {
+            error_log('Brevo API send failed: could not initialize cURL.');
+            return false;
+        }
+
+        $payload = json_encode([
+            'sender' => ['email' => $sender, 'name' => $senderName],
+            'to' => [['email' => $recipient]],
+            'subject' => $subject,
+            'htmlContent' => $html,
+            'textContent' => $plain,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (!is_string($payload)) {
+            curl_close($curl);
+            error_log('Brevo API send failed: could not encode the email payload.');
+            return false;
+        }
+
+        curl_setopt_array($curl, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => [
+                'accept: application/json',
+                'api-key: ' . $apiKey,
+                'content-type: application/json',
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $response = curl_exec($curl);
+        $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $curlError = curl_error($curl);
+        curl_close($curl);
+
+        if (!is_string($response)) {
+            error_log('Brevo API connection failed: ' . ($curlError !== '' ? $curlError : 'request failed'));
+            return false;
+        }
+        if ($status < 200 || $status >= 300) {
+            error_log('Brevo API rejected the password reset email (HTTP ' . $status . ').');
+            return false;
+        }
+
+        return true;
     }
 
     private function command(string $command, array $expected): string

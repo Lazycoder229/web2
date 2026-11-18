@@ -117,7 +117,7 @@ class PasswordReset extends Controller
         if (!$sent) {
             $this->db->raw('DELETE FROM password_reset_tokens WHERE token_hash = ?', [$hash]);
         }
-        $this->resetResponse($type, $sent ? 'smtp_accepted_message' : 'smtp_send_failed_check_php_logs', $message);
+        $this->resetResponse($type, $sent ? 'provider_accepted_message' : 'email_send_failed_check_php_logs', $message);
     }
 
     private function reset_password(string $type): void
